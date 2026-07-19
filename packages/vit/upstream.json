@@ -1,0 +1,6 @@
+{
+  "type": "npm-github",
+  "github": "solpbc/vit",
+  "tag_prefix": "v",
+  "description": "Regenerate package-lock.json with resolved URLs after each version bump"
+}
