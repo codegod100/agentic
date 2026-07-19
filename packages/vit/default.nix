@@ -15,12 +15,23 @@ buildNpmPackage (finalAttrs: {
     hash = "sha256-iICVLod9SnBxm/4nQuD/cecOobP7QHRgG4LZmZEUYRg=";
   };
 
-  # Prefetched offline npm dependency cache (from package-lock.json).
-  # To update after a version bump: set to lib.fakeHash, build once, paste the hash nix prints.
-  npmDepsHash = "sha256-nH6gXa7r8n3yxF96B8Ep6kATFrPbANg43V3EatqiITQ=";
+  # Upstream's package-lock.json (often produced via bun) is missing "resolved"
+  # URLs, which breaks nixpkgs' offline npm cache. This lockfile was regenerated
+  # with `npm install --package-lock-only` against the same version.
+  postPatch = ''
+    cp ${./package-lock.json} package-lock.json
+  '';
 
-  # Pure JS CLI — package.json has no "build" script.
+  # Prefetched offline npm dependency cache.
+  # To update after a version bump:
+  #   1. Bump version/rev/src hash
+  #   2. Regenerate packages/vit/package-lock.json (see README)
+  #   3. Set npmDepsHash = lib.fakeHash, build once, paste the hash nix prints
+  npmDepsHash = "sha256-SNk+TDlrwgtVRLKD209iLvHba5laRQ9gmtMAsCgtZjU=";
+
+  # Pure JS CLI — no compile step. Upstream Makefile runs `bun install` (dev only).
   dontNpmBuild = true;
+  dontBuild = true;
 
   # Upstream postinstall copies agent skills into $HOME; skip in the build sandbox.
   npmFlags = [ "--ignore-scripts" ];
