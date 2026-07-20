@@ -1,0 +1,6 @@
+{
+  "type": "github-unstable",
+  "github": "matz/spinel",
+  "branch": "master",
+  "description": "Ruby AOT compiler. No release tags yet; track master tip. Also refreshes vendored prism/rbs gem hashes from Makefile versions."
+}

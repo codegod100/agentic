@@ -27,18 +27,23 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | Attr | Upstream | Install (non-Nix) |
 |------|----------|-------------------|
 | `vit` | [solpbc/vit](https://github.com/solpbc/vit) | `npm install -g vit` |
+| `spinel` | [matz/spinel](https://github.com/matz/spinel) | build from source (`make deps && make && make install`) |
 
 ## Usage
 
 ```bash
 # build
 nix build .#vit
+nix build .#spinel
 
 # run without installing
 nix run .#vit -- --help
+nix run .#spinel -- --help
+nix run .#spin -- new myapp   # spin project tool (from the spinel package)
 
 # install into your profile
 nix profile install .#vit
+nix profile install .#spinel
 ```
 
 ## Updating packages
@@ -64,7 +69,9 @@ A GitHub Action runs **every Monday** (and on manual dispatch) to:
 
 ### `upstream.json`
 
-Currently supported type:
+Supported types:
+
+**npm-github** — tagged npm projects:
 
 ```json
 {
@@ -76,6 +83,20 @@ Currently supported type:
 
 `npm-github` packages are expected to use `buildNpmPackage` + `fetchFromGitHub`
 with a `version` field and optional vendored `package-lock.json`.
+
+**github-unstable** — projects without release tags (track branch tip):
+
+```json
+{
+  "type": "github-unstable",
+  "github": "owner/repo",
+  "branch": "master"
+}
+```
+
+Versions are `0-unstable-YYYY-MM-DD` with a pinned `rev` in `fetchFromGitHub`.
+For spinel, the updater also re-reads `PRISM_VERSION` / `RBS_VERSION` from the
+upstream Makefile and refreshes the vendored gem hashes when they change.
 
 ### Manual steps (vit)
 
@@ -100,3 +121,25 @@ If you prefer to bump by hand:
    hash nix prints as `got:`, rebuild.
 
 Or just run `./scripts/update-packages.sh vit`.
+
+### Manual steps (spinel)
+
+Spinel has no release tags yet, so the package pins a git commit as
+`0-unstable-YYYY-MM-DD`. Prefer the updater:
+
+```bash
+./scripts/update-packages.sh spinel
+```
+
+By hand:
+
+1. Bump `version`, `rev`, and the `fetchFromGitHub` `hash` in
+   `packages/spinel/default.nix`.
+2. If upstream changed `PRISM_VERSION` / `RBS_VERSION` in its Makefile, update
+   `prismVersion` / `rbsVersion` and re-hash the gems:
+   ```bash
+   nix-prefetch-url "https://rubygems.org/gems/prism-X.Y.Z.gem"
+   nix-prefetch-url "https://rubygems.org/gems/rbs-X.Y.Z.gem"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. `nix build .#spinel` and smoke-test `./result/bin/spinel -e 'puts 1'`.

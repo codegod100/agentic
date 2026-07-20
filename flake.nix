@@ -24,15 +24,24 @@
         in
         {
           vit = pkgs.callPackage ./packages/vit { };
+          spinel = pkgs.callPackage ./packages/spinel { };
           default = self.packages.${system}.vit;
         }
       );
 
-      # Convenience: `nix run .#vit -- --help`
+      # Convenience: `nix run .#vit -- --help`, `nix run .#spinel -- --help`
       apps = forAllSystems (system: {
         vit = {
           type = "app";
           program = "${self.packages.${system}.vit}/bin/vit";
+        };
+        spinel = {
+          type = "app";
+          program = "${self.packages.${system}.spinel}/bin/spinel";
+        };
+        spin = {
+          type = "app";
+          program = "${self.packages.${system}.spinel}/bin/spin";
         };
         default = self.apps.${system}.vit;
       });

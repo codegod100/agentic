@@ -205,6 +205,159 @@ regenerate_npm_lock() {
   rm -rf "$tmp"
 }
 
+set_fetch_from_github_field() {
+  # set_fetch_from_github_field <file> <attr> <value>
+  # Replaces attr = "..." inside the first fetchFromGitHub { ... } block.
+  local file="$1" attr="$2" value="$3"
+  python3 -c '
+import re, sys
+path, attr, value = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path).read()
+pat = re.compile(
+    rf"(fetchFromGitHub\s*\{{[^}}]*?{re.escape(attr)}\s*=\s*\")([^\"]+)(\")",
+    re.S,
+)
+new, n = pat.subn(rf"\g<1>{value}\g<3>", text, count=1)
+if n != 1:
+    sys.exit(f"failed to set fetchFromGitHub.{attr} in {path} (matches={n})")
+open(path, "w").write(new)
+' "$file" "$attr" "$value"
+}
+
+current_rev() {
+  python3 -c '
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r"fetchFromGitHub\s*\{[^}]*?rev\s*=\s*\"([^\"]+)\"", text, re.S)
+if not m:
+    sys.exit("rev not found in " + sys.argv[1])
+print(m.group(1))
+' "$1"
+}
+
+latest_github_commit() {
+  # latest_github_commit <owner/repo> <branch>
+  # prints: <sha> <YYYY-MM-DD>
+  local repo="$1" branch="$2"
+  local url="https://api.github.com/repos/${repo}/commits/${branch}"
+  local args=(-fsSL)
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  curl "${args[@]}" "$url" | python3 -c '
+import json, sys
+c = json.load(sys.stdin)
+sha = c["sha"]
+date = c["commit"]["committer"]["date"][:10]
+print(sha, date)
+'
+}
+
+sri_from_url_file() {
+  local url="$1"
+  # nix-prefetch-url (no --unpack) for plain files (gems, etc.)
+  local base32
+  base32="$(nix-prefetch-url "$url" 2>/dev/null)"
+  nix hash convert --hash-algo sha256 --to sri "$base32"
+}
+
+refresh_vendored_gems() {
+  # refresh_vendored_gems <default.nix> <owner/repo> <rev>
+  # If the package vendors prism/rbs gems, re-read versions from upstream
+  # Makefile at that rev and refresh fetchurl hashes when they change.
+  local default_nix="$1" repo="$2" rev="$3"
+  python3 -c '
+import re, sys
+text = open(sys.argv[1]).read()
+sys.exit(0 if re.search(r"prismVersion\s*=", text) else 1)
+' "$default_nix" 2>/dev/null || return 0
+
+  local makefile
+  makefile="$(mktemp)"
+  local args=(-fsSL)
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  curl "${args[@]}" \
+    "https://raw.githubusercontent.com/${repo}/${rev}/Makefile" \
+    -o "$makefile"
+
+  local prism_ver rbs_ver
+  prism_ver="$(python3 -c '
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r"PRISM_VERSION\s*\?=\s*(\S+)", text)
+print(m.group(1) if m else "")
+' "$makefile")"
+  rbs_ver="$(python3 -c '
+import re, sys
+text = open(sys.argv[1]).read()
+m = re.search(r"RBS_VERSION\s*\?=\s*(\S+)", text)
+print(m.group(1) if m else "")
+' "$makefile")"
+  rm -f "$makefile"
+
+  [[ -n "$prism_ver" && -n "$rbs_ver" ]] || {
+    warn "could not parse PRISM_VERSION/RBS_VERSION from upstream Makefile"
+    return 0
+  }
+
+  local cur_prism cur_rbs
+  cur_prism="$(python3 -c '
+import re, sys
+m = re.search(r"prismVersion\s*=\s*\"([^\"]+)\"", open(sys.argv[1]).read())
+print(m.group(1) if m else "")
+' "$default_nix")"
+  cur_rbs="$(python3 -c '
+import re, sys
+m = re.search(r"rbsVersion\s*=\s*\"([^\"]+)\"", open(sys.argv[1]).read())
+print(m.group(1) if m else "")
+' "$default_nix")"
+
+  if [[ "$prism_ver" != "$cur_prism" ]]; then
+    log "  prism ${cur_prism} -> ${prism_ver}"
+    set_field_string "$default_nix" prismVersion "$prism_ver"
+    local prism_hash
+    prism_hash="$(sri_from_url_file "https://rubygems.org/gems/prism-${prism_ver}.gem")"
+    python3 -c '
+import re, sys
+path, ver, h = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path).read()
+# first fetchurl after prismGem =
+pat = re.compile(
+    r"(prismGem\s*=\s*fetchurl\s*\{[^}]*?hash\s*=\s*\")([^\"]+)(\")",
+    re.S,
+)
+new, n = pat.subn(rf"\g<1>{h}\g<3>", text, count=1)
+if n != 1:
+    sys.exit(f"failed to set prismGem hash (matches={n})")
+open(path, "w").write(new)
+' "$default_nix" "$prism_ver" "$prism_hash"
+    log "  prism gem hash ${prism_hash}"
+  fi
+
+  if [[ "$rbs_ver" != "$cur_rbs" ]]; then
+    log "  rbs ${cur_rbs} -> ${rbs_ver}"
+    set_field_string "$default_nix" rbsVersion "$rbs_ver"
+    local rbs_hash
+    rbs_hash="$(sri_from_url_file "https://rubygems.org/gems/rbs-${rbs_ver}.gem")"
+    python3 -c '
+import re, sys
+path, h = sys.argv[1], sys.argv[2]
+text = open(path).read()
+pat = re.compile(
+    r"(rbsGem\s*=\s*fetchurl\s*\{[^}]*?hash\s*=\s*\")([^\"]+)(\")",
+    re.S,
+)
+new, n = pat.subn(rf"\g<1>{h}\g<3>", text, count=1)
+if n != 1:
+    sys.exit(f"failed to set rbsGem hash (matches={n})")
+open(path, "w").write(new)
+' "$default_nix" "$rbs_hash"
+    log "  rbs gem hash ${rbs_hash}"
+  fi
+}
+
 update_npm_github() {
   local name="$1"
   local pkg_dir="$ROOT/packages/${name}"
@@ -239,18 +392,7 @@ update_npm_github() {
   src_url="https://github.com/${repo}/archive/refs/tags/${tag_prefix}${latest}.tar.gz"
   log "${name}: prefetching src ${src_url}"
   src_hash="$(sri_from_url_unpack "$src_url")"
-  # The hash = "..." inside fetchFromGitHub — set the first hash = "..." after fetchFromGitHub
-  python3 -c '
-import re, sys
-path, value = sys.argv[1], sys.argv[2]
-text = open(path).read()
-# Replace hash inside fetchFromGitHub block only (first hash = "sha256-...")
-pat = re.compile(r"(fetchFromGitHub\s*\{[^}]*?hash\s*=\s*\")([^\"]+)(\")", re.S)
-new, n = pat.subn(rf"\g<1>{value}\g<3>", text, count=1)
-if n != 1:
-    sys.exit(f"failed to set src hash (matches={n})")
-open(path, "w").write(new)
-' "$default_nix" "$src_hash"
+  set_fetch_from_github_field "$default_nix" hash "$src_hash"
   log "${name}: src hash ${src_hash}"
 
   if [[ -f "$pkg_dir/package-lock.json" ]]; then
@@ -269,6 +411,55 @@ open(path, "w").write(new)
   log "${name}: updated successfully to ${latest}"
 }
 
+update_github_unstable() {
+  # Track tip of a branch for projects without release tags.
+  # version format: 0-unstable-YYYY-MM-DD
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+  local repo branch
+  repo="$(read_field "$upstream" github)"
+  branch="$(read_field "$upstream" branch)"
+  [[ -n "$repo" ]] || die "${name}: upstream.json missing github"
+  branch="${branch:-master}"
+
+  local cur_rev cur_ver latest_sha latest_date latest_ver
+  cur_rev="$(current_rev "$default_nix")"
+  cur_ver="$(current_version "$default_nix")"
+  log "${name}: current=${cur_ver} (rev ${cur_rev:0:12})"
+
+  read -r latest_sha latest_date < <(latest_github_commit "$repo" "$branch")
+  latest_ver="0-unstable-${latest_date}"
+  log "${name}: latest ${branch}=${latest_sha:0:12} (${latest_date})"
+
+  if [[ "$latest_sha" == "$cur_rev" ]]; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  if [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: OUTDATED (${cur_rev:0:12} -> ${latest_sha:0:12})"
+    return 10
+  fi
+
+  log "${name}: updating ${cur_rev:0:12} -> ${latest_sha:0:12}"
+  set_field_string "$default_nix" version "$latest_ver"
+  set_fetch_from_github_field "$default_nix" rev "$latest_sha"
+
+  local src_url src_hash
+  src_url="https://github.com/${repo}/archive/${latest_sha}.tar.gz"
+  log "${name}: prefetching src ${src_url}"
+  src_hash="$(sri_from_url_unpack "$src_url")"
+  set_fetch_from_github_field "$default_nix" hash "$src_hash"
+  log "${name}: src hash ${src_hash}"
+
+  refresh_vendored_gems "$default_nix" "$repo" "$latest_sha"
+
+  verify_build "$name"
+  log "${name}: updated successfully to ${latest_ver} (${latest_sha:0:12})"
+}
+
 UPDATED=0
 OUTDATED=0
 
@@ -279,25 +470,28 @@ for name in "${PACKAGES[@]}"; do
   [[ -f "$pkg_dir/default.nix" ]] || die "${name}: missing packages/${name}/default.nix"
 
   type="$(read_field "$pkg_dir/upstream.json" type)"
+  status=0
   case "$type" in
     npm-github)
-      status=0
       update_npm_github "$name" || status=$?
-      if [[ $status -eq 10 ]]; then
-        OUTDATED=$((OUTDATED + 1))
-      elif [[ $status -ne 0 ]]; then
-        exit "$status"
-      else
-        # detect if files changed for this package
-        if [[ "$CHECK_ONLY" -eq 0 ]] && ! git -C "$ROOT" diff --quiet -- "packages/${name}" 2>/dev/null; then
-          UPDATED=$((UPDATED + 1))
-        fi
-      fi
+      ;;
+    github-unstable)
+      update_github_unstable "$name" || status=$?
       ;;
     *)
       die "${name}: unsupported upstream type '${type}'"
       ;;
   esac
+  if [[ $status -eq 10 ]]; then
+    OUTDATED=$((OUTDATED + 1))
+  elif [[ $status -ne 0 ]]; then
+    exit "$status"
+  else
+    # detect if files changed for this package
+    if [[ "$CHECK_ONLY" -eq 0 ]] && ! git -C "$ROOT" diff --quiet -- "packages/${name}" 2>/dev/null; then
+      UPDATED=$((UPDATED + 1))
+    fi
+  fi
 done
 
 if [[ "$CHECK_ONLY" -eq 1 ]]; then
