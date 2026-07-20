@@ -32,8 +32,8 @@ stdenv.mkDerivation (finalAttrs: {
   src = fetchFromGitHub {
     owner = "matz";
     repo = "spinel";
-    rev = "99aad26b59ec134596833b101cb1c03909afd130";
-    hash = "sha256-Dqaopg08gqBH++Uc9HZi0LqhwwaHNLn6eX5x0jXlYDo=";
+    rev = "d2d9c8ad69fbe8d6952c5cb53689bae6129f5074";
+    hash = "sha256-DS04ruOsXHcje+b0a2YDEftuytR188iUdTGhSO3n9sA=";
   };
 
   nativeBuildInputs = [ makeWrapper ];
