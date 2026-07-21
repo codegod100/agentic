@@ -25,6 +25,7 @@
         {
           vit = pkgs.callPackage ./packages/vit { };
           spinel = pkgs.callPackage ./packages/spinel { };
+          rook = pkgs.callPackage ./packages/rook { };
           default = self.packages.${system}.vit;
         }
       );
@@ -42,6 +43,10 @@
         spin = {
           type = "app";
           program = "${self.packages.${system}.spinel}/bin/spin";
+        };
+        rook = {
+          type = "app";
+          program = "${self.packages.${system}.rook}/bin/rook";
         };
         default = self.apps.${system}.vit;
       });
