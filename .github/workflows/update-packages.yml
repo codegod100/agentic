@@ -75,6 +75,7 @@ jobs:
             - [ ] Diff looks intentional (version + hashes + lockfile only)
             - [ ] `nix build .#<pkg>` works locally if you want a second check
             - [ ] Merge when ready — no human edits required unless a package needs a packaging fix
+          base: main
           branch: chore/update-packages
           delete-branch: true
           add-paths: |
