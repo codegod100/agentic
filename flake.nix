@@ -28,27 +28,40 @@
           rook = pkgs.callPackage ./packages/rook { };
           default = self.packages.${system}.vit;
         }
+        // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          # Official preview tarball is only fetched for x86_64-linux.
+          zed-preview = pkgs.callPackage ./packages/zed-preview { };
+        }
       );
 
       # Convenience: `nix run .#vit -- --help`, `nix run .#spinel -- --help`
-      apps = forAllSystems (system: {
-        vit = {
-          type = "app";
-          program = "${self.packages.${system}.vit}/bin/vit";
-        };
-        spinel = {
-          type = "app";
-          program = "${self.packages.${system}.spinel}/bin/spinel";
-        };
-        spin = {
-          type = "app";
-          program = "${self.packages.${system}.spinel}/bin/spin";
-        };
-        rook = {
-          type = "app";
-          program = "${self.packages.${system}.rook}/bin/rook";
-        };
-        default = self.apps.${system}.vit;
-      });
+      apps = forAllSystems (
+        system:
+        {
+          vit = {
+            type = "app";
+            program = "${self.packages.${system}.vit}/bin/vit";
+          };
+          spinel = {
+            type = "app";
+            program = "${self.packages.${system}.spinel}/bin/spinel";
+          };
+          spin = {
+            type = "app";
+            program = "${self.packages.${system}.spinel}/bin/spin";
+          };
+          rook = {
+            type = "app";
+            program = "${self.packages.${system}.rook}/bin/rook";
+          };
+          default = self.apps.${system}.vit;
+        }
+        // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
+          zed-preview = {
+            type = "app";
+            program = "${self.packages.${system}.zed-preview}/bin/zed-preview";
+          };
+        }
+      );
     };
 }

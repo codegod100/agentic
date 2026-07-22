@@ -411,6 +411,120 @@ update_npm_github() {
   log "${name}: updated successfully to ${latest}"
 }
 
+latest_github_tag_with_suffix() {
+  # latest_github_tag_with_suffix <owner/repo> <prefix> <suffix>
+  # e.g. prefix=v suffix=-pre  => matches v1.12.0-pre, prints 1.12.0-pre
+  local repo="$1" prefix="$2" suffix="$3"
+  local url="https://api.github.com/repos/${repo}/releases?per_page=30"
+  local args=(-fsSL)
+  if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+    args+=(-H "Authorization: Bearer ${GITHUB_TOKEN}")
+  fi
+  curl "${args[@]}" "$url" | python3 -c '
+import json, re, sys
+prefix, suffix = sys.argv[1], sys.argv[2]
+releases = json.load(sys.stdin)
+pat = re.compile(
+    r"^" + re.escape(prefix) + r"(\d+\.\d+\.\d+)" + re.escape(suffix) + r"$"
+)
+versions = []
+for r in releases:
+    if r.get("draft"):
+        continue
+    name = r.get("tag_name") or ""
+    m = pat.match(name)
+    if m:
+        versions.append(m.group(1) + suffix)
+if not versions:
+    sys.exit("no matching release tags for prefix=%r suffix=%r" % (prefix, suffix))
+def key(v):
+    core = re.split(r"[+-]", v, maxsplit=1)[0]
+    return [int(x) for x in core.split(".")]
+versions.sort(key=key)
+print(versions[-1])
+' "$prefix" "$suffix"
+}
+
+set_fetchurl_hash() {
+  # set_fetchurl_hash <file> <value>
+  # Replaces hash = "..." inside the first fetchurl { ... } block.
+  local file="$1" value="$2"
+  python3 -c '
+import re, sys
+path, value = sys.argv[1], sys.argv[2]
+text = open(path).read()
+pat = re.compile(
+    r"(fetchurl\s*\{[^}]*?hash\s*=\s*\")([^\"]+)(\")",
+    re.S,
+)
+new, n = pat.subn(rf"\g<1>{value}\g<3>", text, count=1)
+if n != 1:
+    sys.exit(f"failed to set fetchurl.hash in {path} (matches={n})")
+open(path, "w").write(new)
+' "$file" "$value"
+}
+
+update_github_release_binary() {
+  # Official prebuilt release assets (e.g. zed-preview Linux tarball).
+  # version in default.nix is the tag without the leading "v" (e.g. 1.12.0-pre).
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+  local repo tag_prefix tag_suffix asset
+  repo="$(read_field "$upstream" github)"
+  tag_prefix="$(read_field "$upstream" tag_prefix)"
+  tag_suffix="$(read_field "$upstream" tag_suffix)"
+  asset="$(read_field "$upstream" asset)"
+  [[ -n "$repo" ]] || die "${name}: upstream.json missing github"
+  [[ -n "$asset" ]] || die "${name}: upstream.json missing asset"
+  tag_prefix="${tag_prefix:-v}"
+  tag_suffix="${tag_suffix:-}"
+
+  local cur latest
+  cur="$(current_version "$default_nix")"
+  log "${name}: current=${cur}"
+  latest="$(latest_github_tag_with_suffix "$repo" "$tag_prefix" "$tag_suffix")"
+  log "${name}: latest upstream=${latest}"
+
+  if [[ "$latest" == "$cur" ]]; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  # Semver compare on the numeric core (ignore -pre etc.)
+  local cur_core latest_core
+  cur_core="${cur%%-*}"; cur_core="${cur_core%%+*}"
+  latest_core="${latest%%-*}"; latest_core="${latest_core%%+*}"
+  if ! version_gt "$latest_core" "$cur_core" && [[ "$latest" != "$cur" ]]; then
+    # Same core version but different suffix, or non-monotonic tag: still update
+    # when the full tag string differs (handled above). If latest core is older,
+    # skip to avoid downgrades.
+    if ! version_gt "$latest_core" "$cur_core" && [[ "$latest_core" != "$cur_core" ]]; then
+      log "${name}: latest core ${latest_core} is not newer than ${cur_core}; skipping"
+      return 0
+    fi
+  fi
+
+  if [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: OUTDATED (${cur} -> ${latest})"
+    return 10
+  fi
+
+  log "${name}: updating ${cur} -> ${latest}"
+  set_field_string "$default_nix" version "$latest"
+
+  local src_url src_hash
+  src_url="https://github.com/${repo}/releases/download/${tag_prefix}${latest}/${asset}"
+  log "${name}: prefetching ${src_url}"
+  src_hash="$(sri_from_url_file "$src_url")"
+  set_fetchurl_hash "$default_nix" "$src_hash"
+  log "${name}: src hash ${src_hash}"
+
+  verify_build "$name"
+  log "${name}: updated successfully to ${latest}"
+}
+
 update_github_unstable() {
   # Track tip of a branch for projects without release tags.
   # version format: 0-unstable-YYYY-MM-DD
@@ -477,6 +591,9 @@ for name in "${PACKAGES[@]}"; do
       ;;
     github-unstable)
       update_github_unstable "$name" || status=$?
+      ;;
+    github-release-binary)
+      update_github_release_binary "$name" || status=$?
       ;;
     *)
       die "${name}: unsupported upstream type '${type}'"

@@ -1,0 +1,8 @@
+{
+  "type": "github-release-binary",
+  "github": "zed-industries/zed",
+  "tag_prefix": "v",
+  "tag_suffix": "-pre",
+  "asset": "zed-linux-x86_64.tar.gz",
+  "description": "Official Linux x86_64 preview tarball. Tracks latest vX.Y.Z-pre GitHub release."
+}
