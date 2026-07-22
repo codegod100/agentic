@@ -29,6 +29,7 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `vit` | [solpbc/vit](https://github.com/solpbc/vit) | `npm install -g vit` |
 | `rook` | [solpbc/rook](https://github.com/solpbc/rook) | `npm install -g @solpbc/rook` |
 | `spinel` | [matz/spinel](https://github.com/matz/spinel) | build from source (`make deps && make && make install`) |
+| `boxd` | [boxd.sh](https://boxd.sh) / [docs](https://docs.boxd.sh/quickstart) | `curl -fsSL https://boxd.sh/downloads/install.sh \| sh` |
 | `zed-preview` | [zed-industries/zed](https://github.com/zed-industries/zed) (preview channel) | [official Linux installer](https://zed.dev/docs/linux) / `zed-linux-x86_64.tar.gz` |
 
 ## Usage
@@ -38,6 +39,7 @@ updates, also add `packages/<name>/upstream.json` (see below).
 nix build .#vit
 nix build .#rook
 nix build .#spinel
+nix build .#boxd          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#zed-preview   # x86_64-linux only
 
 # run without installing
@@ -45,12 +47,14 @@ nix run .#vit -- --help
 nix run .#rook -- --help
 nix run .#spinel -- --help
 nix run .#spin -- new myapp   # spin project tool (from the spinel package)
+nix run .#boxd -- --help
 nix run .#zed-preview -- --version
 
 # install into your profile
 nix profile install .#vit
 nix profile install .#rook
 nix profile install .#spinel
+nix profile install .#boxd
 nix profile install .#zed-preview
 ```
 
@@ -122,6 +126,25 @@ Tracks the newest non-draft GitHub release whose tag matches
 `{tag_prefix}{semver}{tag_suffix}` and refreshes the `fetchurl` hash for
 `asset`. Used by `zed-preview` (x86_64-linux only).
 
+**url-manifest-binary** — prebuilt multi-platform binaries via a version
+manifest URL (not GitHub releases):
+
+```json
+{
+  "type": "url-manifest-binary",
+  "manifest_url": "https://boxd.sh/downloads/cli/latest-{platform}.json",
+  "platforms": {
+    "x86_64-linux": "linux-amd64",
+    "aarch64-linux": "linux-arm64",
+    "aarch64-darwin": "darwin-arm64"
+  }
+}
+```
+
+`{platform}` is replaced per entry in `platforms`. Each manifest must expose
+`version` + `url`; the updater prefetches every platform hash and rewrites the
+`sources = { … }` block in `default.nix`. Used by `boxd`.
+
 ### Manual steps (vit / rook)
 
 If you prefer to bump by hand (same flow for either npm-github package):
@@ -187,3 +210,30 @@ By hand:
    ```
 3. Paste the SRI hash into `fetchurl.hash`, then `nix build .#zed-preview` and
    smoke-test `./result/bin/zed-preview --version`.
+
+### Manual steps (boxd)
+
+`boxd` ships official static CLI binaries from [boxd.sh](https://boxd.sh)
+(see [quickstart](https://docs.boxd.sh/quickstart)). Prefer the updater:
+
+```bash
+./scripts/update-packages.sh boxd
+```
+
+By hand:
+
+1. Read the manifests and note the shared version:
+   ```bash
+   curl -fsSL https://boxd.sh/downloads/cli/latest-linux-amd64.json
+   curl -fsSL https://boxd.sh/downloads/cli/latest-linux-arm64.json
+   curl -fsSL https://boxd.sh/downloads/cli/latest-darwin-arm64.json
+   ```
+2. Bump `version` in `packages/boxd/default.nix`.
+3. Prefetch each platform binary hash into the matching `sources.<system>.hash`:
+   ```bash
+   nix-prefetch-url "https://boxd.sh/downloads/cli/boxd-linux-amd64"
+   nix-prefetch-url "https://boxd.sh/downloads/cli/boxd-linux-arm64"
+   nix-prefetch-url "https://boxd.sh/downloads/cli/boxd-darwin-arm64"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+4. `nix build .#boxd` and smoke-test `./result/bin/boxd --version`.

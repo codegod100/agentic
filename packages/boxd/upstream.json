@@ -1,0 +1,10 @@
+{
+  "type": "url-manifest-binary",
+  "manifest_url": "https://boxd.sh/downloads/cli/latest-{platform}.json",
+  "platforms": {
+    "x86_64-linux": "linux-amd64",
+    "aarch64-linux": "linux-arm64",
+    "aarch64-darwin": "darwin-arm64"
+  },
+  "description": "Official boxd CLI static binaries. Tracks version + per-platform hashes from boxd.sh download manifests."
+}

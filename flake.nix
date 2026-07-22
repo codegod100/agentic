@@ -21,12 +21,30 @@
         system:
         let
           pkgs = nixpkgs.legacyPackages.${system};
+          # boxd is a binary-only redistributable CLI (unfreeRedistributable).
+          # Import a pkgs set that only allows that attr so `nix build .#boxd`
+          # works without a global allowUnfree.
+          pkgsUnfree = import nixpkgs {
+            inherit system;
+            config.allowUnfreePredicate =
+              pkg: builtins.elem (nixpkgs.lib.getName pkg) [ "boxd" ];
+          };
         in
         {
           vit = pkgs.callPackage ./packages/vit { };
           spinel = pkgs.callPackage ./packages/spinel { };
           rook = pkgs.callPackage ./packages/rook { };
           default = self.packages.${system}.vit;
+        }
+        // pkgs.lib.optionalAttrs (
+          builtins.elem system [
+            "x86_64-linux"
+            "aarch64-linux"
+            "aarch64-darwin"
+          ]
+        ) {
+          # Official prebuilt CLI (static binary); no darwin-x86_64 upstream.
+          boxd = pkgsUnfree.callPackage ./packages/boxd { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Official preview tarball is only fetched for x86_64-linux.
@@ -55,6 +73,18 @@
             program = "${self.packages.${system}.rook}/bin/rook";
           };
           default = self.apps.${system}.vit;
+        }
+        // nixpkgs.lib.optionalAttrs (
+          builtins.elem system [
+            "x86_64-linux"
+            "aarch64-linux"
+            "aarch64-darwin"
+          ]
+        ) {
+          boxd = {
+            type = "app";
+            program = "${self.packages.${system}.boxd}/bin/boxd";
+          };
         }
         // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           zed-preview = {

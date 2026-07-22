@@ -525,6 +525,139 @@ update_github_release_binary() {
   log "${name}: updated successfully to ${latest}"
 }
 
+update_url_manifest_binary() {
+  # Prebuilt multi-platform binaries discovered via a version manifest URL.
+  # upstream.json:
+  #   type: url-manifest-binary
+  #   manifest_url: "https://…/latest-{platform}.json"  ({platform} substituted)
+  #   platforms: { "x86_64-linux": "linux-amd64", … }
+  #
+  # default.nix is expected to declare:
+  #   version = "…";
+  #   sources = { <nix-system> = { url = "…"; hash = "…"; }; … };
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+  local manifest_url
+  manifest_url="$(read_field "$upstream" manifest_url)"
+  [[ -n "$manifest_url" ]] || die "${name}: upstream.json missing manifest_url"
+
+  local cur latest
+  cur="$(current_version "$default_nix")"
+  log "${name}: current=${cur}"
+
+  # Fetch all platform manifests; require a single shared version.
+  local platform_data
+  platform_data="$(python3 -c '
+import json, os, re, subprocess, sys, urllib.request
+
+upstream = json.load(open(sys.argv[1]))
+manifest_tmpl = upstream["manifest_url"]
+platforms = upstream["platforms"]
+if not platforms:
+    sys.exit("platforms map is empty")
+
+entries = {}
+versions = set()
+for nix_system, platform in platforms.items():
+    url = manifest_tmpl.replace("{platform}", platform)
+    with urllib.request.urlopen(url) as r:
+        m = json.load(r)
+    ver = m.get("version") or ""
+    bin_url = m.get("url") or ""
+    if not ver or not bin_url:
+        sys.exit(f"invalid manifest for {platform}: {m!r}")
+    versions.add(ver)
+    entries[nix_system] = {"url": bin_url, "platform": platform}
+if len(versions) != 1:
+    sys.exit(f"platform versions disagree: {sorted(versions)}")
+version = versions.pop()
+print(json.dumps({"version": version, "entries": entries}))
+' "$upstream")"
+
+  latest="$(python3 -c 'import json,sys; print(json.load(sys.stdin)["version"])' <<<"$platform_data")"
+  log "${name}: latest upstream=${latest}"
+
+  if [[ "$latest" == "$cur" ]]; then
+    # Still refresh hashes if any platform URL/hash drifted without a version bump.
+    # Compare by re-prefetching only when check mode is off and we force-check
+    # via full equality of the sources block after a dry rewrite.
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      log "${name}: already up to date"
+      return 0
+    fi
+    # Fall through only if sources need rewriting (handled below with hash refresh).
+  fi
+
+  if [[ "$latest" != "$cur" ]]; then
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      log "${name}: OUTDATED (${cur} -> ${latest})"
+      return 10
+    fi
+    log "${name}: updating ${cur} -> ${latest}"
+    set_field_string "$default_nix" version "$latest"
+  elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  # Prefetch each platform binary and rewrite the sources = { … } block.
+  local updated_sources
+  updated_sources="$(python3 -c '
+import json, re, subprocess, sys
+
+platform_data = json.loads(sys.argv[1])
+entries = platform_data["entries"]
+out = {}
+for nix_system, e in entries.items():
+    url = e["url"]
+    base32 = subprocess.check_output(
+        ["nix-prefetch-url", url], text=True
+    ).strip().splitlines()[-1]
+    sri = subprocess.check_output(
+        ["nix", "hash", "convert", "--hash-algo", "sha256", "--to", "sri", base32],
+        text=True,
+    ).strip()
+    out[nix_system] = {"url": url, "hash": sri}
+    print(f"  {nix_system}: {sri}", file=sys.stderr)
+print(json.dumps(out))
+' "$platform_data")"
+
+  python3 -c '
+import json, re, sys
+
+path, sources_json = sys.argv[1], sys.argv[2]
+sources = json.loads(sources_json)
+text = open(path).read()
+
+# Prefer a stable system order.
+order = ["x86_64-linux", "aarch64-linux", "x86_64-darwin", "aarch64-darwin"]
+keys = [k for k in order if k in sources] + sorted(k for k in sources if k not in order)
+
+def fmt_entry(sysname):
+    e = sources[sysname]
+    return (
+        f"    {sysname} = {{\n"
+        f"      url = \"{e['url']}\";\n"
+        f"      hash = \"{e['hash']}\";\n"
+        f"    }};"
+    )
+
+block = "sources = {\n" + "\n".join(fmt_entry(k) for k in keys) + "\n  };"
+pat = re.compile(r"sources\s*=\s*\{.*?\n  \};", re.S)
+new, n = pat.subn(block, text, count=1)
+if n != 1:
+    sys.exit(f"failed to rewrite sources block in {path} (matches={n})")
+open(path, "w").write(new)
+' "$default_nix" "$updated_sources"
+
+  log "${name}: sources refreshed"
+
+  verify_build "$name"
+  log "${name}: updated successfully to ${latest}"
+}
+
 update_github_unstable() {
   # Track tip of a branch for projects without release tags.
   # version format: 0-unstable-YYYY-MM-DD
@@ -594,6 +727,9 @@ for name in "${PACKAGES[@]}"; do
       ;;
     github-release-binary)
       update_github_release_binary "$name" || status=$?
+      ;;
+    url-manifest-binary)
+      update_url_manifest_binary "$name" || status=$?
       ;;
     *)
       die "${name}: unsupported upstream type '${type}'"
