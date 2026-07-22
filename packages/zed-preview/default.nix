@@ -9,6 +9,7 @@
   libgcc,
   vulkan-loader,
   wayland,
+  xkeyboard-config,
   versionCheckHook,
 }:
 
@@ -48,22 +49,34 @@ stdenv.mkDerivation (finalAttrs: {
 
     mkdir -p $out
     cp -a bin lib libexec share $out/
-    # Coexist with nixpkgs zed-editor (zeditor) and a stable zed binary.
+    # Coexist with nixpkgs zed-editor / zed-editor-fhs (binary + icons).
     mv $out/bin/zed $out/bin/zed-preview
 
-    # Point the desktop entry at our binary name (line-anchored; plain
+    # Rename icons so share/icons/.../zed.png does not collide with zed-editor.
+    find $out/share/icons -type f -name 'zed.png' | while read -r icon; do
+      mv "$icon" "$(dirname "$icon")/zed-preview.png"
+    done
+
+    # Point the desktop entry at our binary + icon names (line-anchored; plain
     # substitute would also rewrite TryExec when matching Exec=zed).
     sed -i \
       -e 's/^TryExec=zed$/TryExec=zed-preview/' \
       -e 's/^Exec=zed/Exec=zed-preview/' \
+      -e 's/^Icon=zed$/Icon=zed-preview/' \
       $out/share/applications/dev.zed.Zed-Preview.desktop
 
     runHook postInstall
   '';
 
   postFixup = ''
+    # xkbcommon defaults to /usr/share/X11/xkb, which does not exist on NixOS.
     wrapProgram $out/bin/zed-preview \
-      --set ZED_UPDATE_EXPLANATION "Zed Preview has been installed using Nix. Auto-updates have thus been disabled."
+      --set ZED_UPDATE_EXPLANATION "Zed Preview has been installed using Nix. Auto-updates have thus been disabled." \
+      --set XKB_CONFIG_ROOT "${xkeyboard-config}/share/X11/xkb"
+    # CLI execs libexec/zed-editor; wrap it too so direct launches get the same env.
+    wrapProgram $out/libexec/zed-editor \
+      --set ZED_UPDATE_EXPLANATION "Zed Preview has been installed using Nix. Auto-updates have thus been disabled." \
+      --set XKB_CONFIG_ROOT "${xkeyboard-config}/share/X11/xkb"
   '';
 
   nativeInstallCheckInputs = [ versionCheckHook ];
