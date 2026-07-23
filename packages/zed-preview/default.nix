@@ -49,8 +49,13 @@ stdenv.mkDerivation (finalAttrs: {
 
     mkdir -p $out
     cp -a bin lib libexec share $out/
-    # Coexist with nixpkgs zed-editor / zed-editor-fhs (binary + icons).
+    # Coexist with nixpkgs zed-editor / zed-editor-fhs (bin + icons + libexec).
+    # CLI looks up ../libexec/zed-editor then ../lib/zed/zed-editor (see
+    # crates/cli); use the second path so profile install does not collide.
     mv $out/bin/zed $out/bin/zed-preview
+    mkdir -p $out/lib/zed
+    mv $out/libexec/zed-editor $out/lib/zed/zed-editor
+    rmdir $out/libexec
 
     # Rename icons so share/icons/.../zed.png does not collide with zed-editor.
     find $out/share/icons -type f -name 'zed.png' | while read -r icon; do
@@ -73,8 +78,8 @@ stdenv.mkDerivation (finalAttrs: {
     wrapProgram $out/bin/zed-preview \
       --set ZED_UPDATE_EXPLANATION "Zed Preview has been installed using Nix. Auto-updates have thus been disabled." \
       --set XKB_CONFIG_ROOT "${xkeyboard-config}/share/X11/xkb"
-    # CLI execs libexec/zed-editor; wrap it too so direct launches get the same env.
-    wrapProgram $out/libexec/zed-editor \
+    # GUI binary (CLI spawns this via ../lib/zed/zed-editor).
+    wrapProgram $out/lib/zed/zed-editor \
       --set ZED_UPDATE_EXPLANATION "Zed Preview has been installed using Nix. Auto-updates have thus been disabled." \
       --set XKB_CONFIG_ROOT "${xkeyboard-config}/share/X11/xkb"
   '';
