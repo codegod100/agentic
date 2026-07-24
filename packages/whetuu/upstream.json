@@ -1,0 +1,12 @@
+{
+  "type": "github-release-binary",
+  "github": "yamafaktory/whetuu",
+  "tag_prefix": "v",
+  "platforms": {
+    "x86_64-linux": "whetuu-v{version}-x86_64-linux-musl.tar.gz",
+    "aarch64-linux": "whetuu-v{version}-aarch64-linux-musl.tar.gz",
+    "x86_64-darwin": "whetuu-v{version}-x86_64-macos.tar.gz",
+    "aarch64-darwin": "whetuu-v{version}-aarch64-macos.tar.gz"
+  },
+  "description": "Official multi-platform release tarballs (static musl on Linux). Tracks latest vX.Y.Z GitHub release and refreshes per-platform fetchurl hashes."
+}

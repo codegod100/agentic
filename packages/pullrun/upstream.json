@@ -1,0 +1,12 @@
+{
+  "type": "github-release-binary",
+  "github": "pullrun/pullrun",
+  "tag_prefix": "v",
+  "platforms": {
+    "x86_64-linux": "pullrun-{version}-linux-amd64.tar.gz",
+    "aarch64-linux": "pullrun-{version}-linux-arm64.tar.gz",
+    "x86_64-darwin": "pullrun-{version}-darwin-amd64.tar.gz",
+    "aarch64-darwin": "pullrun-{version}-darwin-arm64.tar.gz"
+  },
+  "description": "Official multi-platform release tarballs (CLI + runtime). Tracks latest vX.Y.Z GitHub release and refreshes per-platform fetchurl hashes."
+}

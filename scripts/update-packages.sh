@@ -465,8 +465,14 @@ open(path, "w").write(new)
 }
 
 update_github_release_binary() {
-  # Official prebuilt release assets (e.g. zed-preview Linux tarball).
+  # Official prebuilt release assets.
   # version in default.nix is the tag without the leading "v" (e.g. 1.12.0-pre).
+  #
+  # Single-asset (zed-preview):
+  #   asset: "zed-linux-x86_64.tar.gz"
+  # Multi-platform (whetuu) — rewrites sources = { … } like url-manifest-binary:
+  #   platforms: { "x86_64-linux": "whetuu-v{version}-x86_64-linux-musl.tar.gz", … }
+  #   {version} is substituted with the bare version (no tag prefix).
   local name="$1"
   local pkg_dir="$ROOT/packages/${name}"
   local default_nix="$pkg_dir/default.nix"
@@ -477,9 +483,21 @@ update_github_release_binary() {
   tag_suffix="$(read_field "$upstream" tag_suffix)"
   asset="$(read_field "$upstream" asset)"
   [[ -n "$repo" ]] || die "${name}: upstream.json missing github"
-  [[ -n "$asset" ]] || die "${name}: upstream.json missing asset"
   tag_prefix="${tag_prefix:-v}"
   tag_suffix="${tag_suffix:-}"
+
+  local has_platforms=0
+  if python3 -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+sys.exit(0 if u.get("platforms") else 1)
+' "$upstream" 2>/dev/null; then
+    has_platforms=1
+  fi
+
+  if [[ "$has_platforms" -eq 0 && -z "$asset" ]]; then
+    die "${name}: upstream.json needs either asset or platforms"
+  fi
 
   local cur latest
   cur="$(current_version "$default_nix")"
@@ -514,12 +532,70 @@ update_github_release_binary() {
   log "${name}: updating ${cur} -> ${latest}"
   set_field_string "$default_nix" version "$latest"
 
-  local src_url src_hash
-  src_url="https://github.com/${repo}/releases/download/${tag_prefix}${latest}/${asset}"
-  log "${name}: prefetching ${src_url}"
-  src_hash="$(sri_from_url_file "$src_url")"
-  set_fetchurl_hash "$default_nix" "$src_hash"
-  log "${name}: src hash ${src_hash}"
+  if [[ "$has_platforms" -eq 1 ]]; then
+    local updated_sources
+    updated_sources="$(python3 -c '
+import json, re, subprocess, sys
+
+upstream = json.load(open(sys.argv[1]))
+repo = upstream["github"]
+prefix = upstream.get("tag_prefix") or "v"
+version = sys.argv[2]
+platforms = upstream["platforms"]
+if not platforms:
+    sys.exit("platforms map is empty")
+
+out = {}
+for nix_system, asset_tmpl in platforms.items():
+    asset = asset_tmpl.replace("{version}", version)
+    url = f"https://github.com/{repo}/releases/download/{prefix}{version}/{asset}"
+    base32 = subprocess.check_output(
+        ["nix-prefetch-url", url], text=True
+    ).strip().splitlines()[-1]
+    sri = subprocess.check_output(
+        ["nix", "hash", "convert", "--hash-algo", "sha256", "--to", "sri", base32],
+        text=True,
+    ).strip()
+    out[nix_system] = {"url": url, "hash": sri}
+    print(f"  {nix_system}: {sri}", file=sys.stderr)
+print(json.dumps(out))
+' "$upstream" "$latest")"
+
+    python3 -c '
+import json, re, sys
+
+path, sources_json = sys.argv[1], sys.argv[2]
+sources = json.loads(sources_json)
+text = open(path).read()
+
+order = ["x86_64-linux", "aarch64-linux", "x86_64-darwin", "aarch64-darwin"]
+keys = [k for k in order if k in sources] + sorted(k for k in sources if k not in order)
+
+def fmt_entry(sysname):
+    e = sources[sysname]
+    return (
+        f"    {sysname} = {{\n"
+        f"      url = \"{e['url']}\";\n"
+        f"      hash = \"{e['hash']}\";\n"
+        f"    }};"
+    )
+
+block = "sources = {\n" + "\n".join(fmt_entry(k) for k in keys) + "\n  };"
+pat = re.compile(r"sources\s*=\s*\{.*?\n  \};", re.S)
+new, n = pat.subn(block, text, count=1)
+if n != 1:
+    sys.exit(f"failed to rewrite sources block in {path} (matches={n})")
+open(path, "w").write(new)
+' "$default_nix" "$updated_sources"
+    log "${name}: sources refreshed"
+  else
+    local src_url src_hash
+    src_url="https://github.com/${repo}/releases/download/${tag_prefix}${latest}/${asset}"
+    log "${name}: prefetching ${src_url}"
+    src_hash="$(sri_from_url_file "$src_url")"
+    set_fetchurl_hash "$default_nix" "$src_hash"
+    log "${name}: src hash ${src_hash}"
+  fi
 
   verify_build "$name"
   log "${name}: updated successfully to ${latest}"

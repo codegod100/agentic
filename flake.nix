@@ -34,6 +34,8 @@
           vit = pkgs.callPackage ./packages/vit { };
           spinel = pkgs.callPackage ./packages/spinel { };
           rook = pkgs.callPackage ./packages/rook { };
+          whetuu = pkgs.callPackage ./packages/whetuu { };
+          pullrun = pkgs.callPackage ./packages/pullrun { };
           default = self.packages.${system}.vit;
         }
         // pkgs.lib.optionalAttrs (
@@ -71,6 +73,14 @@
           rook = {
             type = "app";
             program = "${self.packages.${system}.rook}/bin/rook";
+          };
+          whetuu = {
+            type = "app";
+            program = "${self.packages.${system}.whetuu}/bin/whetuu";
+          };
+          pullrun = {
+            type = "app";
+            program = "${self.packages.${system}.pullrun}/bin/pullrun";
           };
           default = self.apps.${system}.vit;
         }
