@@ -412,9 +412,10 @@ update_npm_github() {
 }
 
 latest_github_tag_with_suffix() {
-  # latest_github_tag_with_suffix <owner/repo> <prefix> <suffix>
+  # latest_github_tag_with_suffix <owner/repo> <prefix> <suffix> [prerelease]
   # e.g. prefix=v suffix=-pre  => matches v1.12.0-pre, prints 1.12.0-pre
-  local repo="$1" prefix="$2" suffix="$3"
+  # When prerelease=1, match any vX.Y.Z-<pre> tag (rc1, beta, …) and ignore suffix.
+  local repo="$1" prefix="$2" suffix="$3" prerelease="${4:-0}"
   local url="https://api.github.com/repos/${repo}/releases?per_page=30"
   local args=(-fsSL)
   if [[ -n "${GITHUB_TOKEN:-}" ]]; then
@@ -422,11 +423,17 @@ latest_github_tag_with_suffix() {
   fi
   curl "${args[@]}" "$url" | python3 -c '
 import json, re, sys
-prefix, suffix = sys.argv[1], sys.argv[2]
+prefix, suffix, prerelease = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
 releases = json.load(sys.stdin)
-pat = re.compile(
-    r"^" + re.escape(prefix) + r"(\d+\.\d+\.\d+)" + re.escape(suffix) + r"$"
-)
+if prerelease:
+    # Any prerelease/build tag: v1.18.0-rc1, v1.18.0-beta.2, …
+    pat = re.compile(
+        r"^" + re.escape(prefix) + r"(\d+\.\d+\.\d+[-+][0-9A-Za-z.-]+)$"
+    )
+else:
+    pat = re.compile(
+        r"^" + re.escape(prefix) + r"(\d+\.\d+\.\d+)" + re.escape(suffix) + r"$"
+    )
 versions = []
 for r in releases:
     if r.get("draft"):
@@ -434,15 +441,24 @@ for r in releases:
     name = r.get("tag_name") or ""
     m = pat.match(name)
     if m:
-        versions.append(m.group(1) + suffix)
+        if prerelease:
+            versions.append(m.group(1))
+        else:
+            versions.append(m.group(1) + suffix)
 if not versions:
-    sys.exit("no matching release tags for prefix=%r suffix=%r" % (prefix, suffix))
+    kind = "prerelease" if prerelease else "prefix=%r suffix=%r" % (prefix, suffix)
+    sys.exit("no matching release tags for " + kind)
 def key(v):
-    core = re.split(r"[+-]", v, maxsplit=1)[0]
-    return [int(x) for x in core.split(".")]
+    m = re.match(r"^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$", v)
+    core = [int(x) for x in m.group(1).split(".")]
+    pre = m.group(2) or ""
+    # Prefer higher core; among same core, sort pre parts (rc2 > rc1).
+    pre_parts = re.findall(r"\d+|[A-Za-z]+", pre)
+    pre_key = [int(p) if p.isdigit() else p.lower() for p in pre_parts]
+    return (core, pre_key)
 versions.sort(key=key)
 print(versions[-1])
-' "$prefix" "$suffix"
+' "$prefix" "$suffix" "$prerelease"
 }
 
 set_fetchurl_hash() {
@@ -495,6 +511,15 @@ sys.exit(0 if u.get("platforms") else 1)
     has_platforms=1
   fi
 
+  local tag_prerelease=0
+  if python3 -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+sys.exit(0 if u.get("tag_prerelease") else 1)
+' "$upstream" 2>/dev/null; then
+    tag_prerelease=1
+  fi
+
   if [[ "$has_platforms" -eq 0 && -z "$asset" ]]; then
     die "${name}: upstream.json needs either asset or platforms"
   fi
@@ -502,7 +527,7 @@ sys.exit(0 if u.get("platforms") else 1)
   local cur latest
   cur="$(current_version "$default_nix")"
   log "${name}: current=${cur}"
-  latest="$(latest_github_tag_with_suffix "$repo" "$tag_prefix" "$tag_suffix")"
+  latest="$(latest_github_tag_with_suffix "$repo" "$tag_prefix" "$tag_suffix" "$tag_prerelease")"
   log "${name}: latest upstream=${latest}"
 
   if [[ "$latest" == "$cur" ]]; then

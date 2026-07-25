@@ -36,6 +36,7 @@
           rook = pkgs.callPackage ./packages/rook { };
           whetuu = pkgs.callPackage ./packages/whetuu { };
           pullrun = pkgs.callPackage ./packages/pullrun { };
+          gleam-preview = pkgs.callPackage ./packages/gleam-preview { };
           default = self.packages.${system}.vit;
         }
         // pkgs.lib.optionalAttrs (
@@ -81,6 +82,10 @@
           pullrun = {
             type = "app";
             program = "${self.packages.${system}.pullrun}/bin/pullrun";
+          };
+          gleam-preview = {
+            type = "app";
+            program = "${self.packages.${system}.gleam-preview}/bin/gleam-preview";
           };
           default = self.apps.${system}.vit;
         }

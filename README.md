@@ -32,6 +32,7 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `boxd` | [boxd.sh](https://boxd.sh) / [docs](https://docs.boxd.sh/quickstart) | `curl -fsSL https://boxd.sh/downloads/install.sh \| sh` |
 | `whetuu` | [yamafaktory/whetuu](https://github.com/yamafaktory/whetuu) | [install script](https://yamafaktory.github.io/whetuu/install.sh) / release tarballs |
 | `pullrun` | [pullrun/pullrun](https://github.com/pullrun/pullrun) | `curl -fsSL https://github.com/pullrun/pullrun/raw/main/install.sh \| bash` |
+| `gleam-preview` | [gleam-lang/gleam](https://github.com/gleam-lang/gleam) (prereleases) | [install docs](https://gleam.run/getting-started/installing/) / release tarballs |
 | `zed-preview` | [zed-industries/zed](https://github.com/zed-industries/zed) (preview channel) | [official Linux installer](https://zed.dev/docs/linux) / `zed-linux-x86_64.tar.gz` |
 
 ## Usage
@@ -44,6 +45,7 @@ nix build .#spinel
 nix build .#boxd          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#whetuu        # linux + darwin (all four systems)
 nix build .#pullrun       # linux + darwin (all four systems)
+nix build .#gleam-preview # linux + darwin (all four systems)
 nix build .#zed-preview   # x86_64-linux only
 
 # run without installing
@@ -54,6 +56,7 @@ nix run .#spin -- new myapp   # spin project tool (from the spinel package)
 nix run .#boxd -- --help
 nix run .#whetuu -- --version
 nix run .#pullrun -- --version
+nix run .#gleam-preview -- --version
 nix run .#zed-preview -- --version
 
 # install into your profile
@@ -63,6 +66,7 @@ nix profile install .#spinel
 nix profile install .#boxd
 nix profile install .#whetuu
 nix profile install .#pullrun
+nix profile install .#gleam-preview
 nix profile install .#zed-preview
 ```
 
@@ -149,10 +153,12 @@ Multi-platform (`sources = { … }` block, like `url-manifest-binary`):
 ```
 
 Tracks the newest non-draft GitHub release whose tag matches
-`{tag_prefix}{semver}{tag_suffix}`. Single-asset mode refreshes one `fetchurl`
-hash; multi-platform mode rewrites every `sources.<system>.{url,hash}`.
-`{version}` in asset names is the bare version (no tag prefix). Used by
-`zed-preview` (single) and `whetuu` (multi).
+`{tag_prefix}{semver}{tag_suffix}`. Set `"tag_prerelease": true` to match any
+prerelease tag (`vX.Y.Z-rc1`, `vX.Y.Z-beta`, …) instead of a fixed suffix.
+Single-asset mode refreshes one `fetchurl` hash; multi-platform mode rewrites
+every `sources.<system>.{url,hash}`. `{version}` in asset names is the bare
+version (no tag prefix). Used by `zed-preview` (single), `whetuu` /
+`gleam-preview` / `pullrun` (multi).
 
 **url-manifest-binary** — prebuilt multi-platform binaries via a version
 manifest URL (not GitHub releases):
@@ -310,3 +316,26 @@ By hand:
    ```
 3. `nix build .#pullrun` and smoke-test `./result/bin/pullrun --version` and
    `./result/bin/pullrun-runtime --version`.
+
+### Manual steps (gleam-preview)
+
+`gleam-preview` ships official multi-platform prerelease binaries (tags
+`vX.Y.Z-rcN`, etc.). The binary is installed as `gleam-preview` so it can
+coexist with nixpkgs `gleam`. Prefer the updater:
+
+```bash
+./scripts/update-packages.sh gleam-preview
+```
+
+By hand:
+
+1. Bump `version` in `packages/gleam-preview/default.nix` (e.g. `1.18.0-rc1`).
+2. Update each `sources.<system>.url` to the matching release asset and prefetch:
+   ```bash
+   nix-prefetch-url "https://github.com/gleam-lang/gleam/releases/download/vX.Y.Z-rcN/gleam-vX.Y.Z-rcN-x86_64-unknown-linux-musl.tar.gz"
+   nix-prefetch-url "https://github.com/gleam-lang/gleam/releases/download/vX.Y.Z-rcN/gleam-vX.Y.Z-rcN-aarch64-unknown-linux-musl.tar.gz"
+   nix-prefetch-url "https://github.com/gleam-lang/gleam/releases/download/vX.Y.Z-rcN/gleam-vX.Y.Z-rcN-x86_64-apple-darwin.tar.gz"
+   nix-prefetch-url "https://github.com/gleam-lang/gleam/releases/download/vX.Y.Z-rcN/gleam-vX.Y.Z-rcN-aarch64-apple-darwin.tar.gz"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. `nix build .#gleam-preview` and smoke-test `./result/bin/gleam-preview --version`.
