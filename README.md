@@ -34,6 +34,7 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `pullrun` | [pullrun/pullrun](https://github.com/pullrun/pullrun) | `curl -fsSL https://github.com/pullrun/pullrun/raw/main/install.sh \| bash` |
 | `gleam-preview` | [gleam-lang/gleam](https://github.com/gleam-lang/gleam) (prereleases) | [install docs](https://gleam.run/getting-started/installing/) / release tarballs |
 | `zed-preview` | [zed-industries/zed](https://github.com/zed-industries/zed) (preview channel) | [official Linux installer](https://zed.dev/docs/linux) / `zed-linux-x86_64.tar.gz` |
+| `pulp` | [cheywood/Pulp](https://gitlab.gnome.org/cheywood/Pulp) | [Flathub](https://flathub.org/apps/details/org.gnome.gitlab.cheywood.Pulp) |
 
 ## Usage
 
@@ -47,6 +48,7 @@ nix build .#whetuu        # linux + darwin (all four systems)
 nix build .#pullrun       # linux + darwin (all four systems)
 nix build .#gleam-preview # linux + darwin (all four systems)
 nix build .#zed-preview   # x86_64-linux only
+nix build .#pulp          # linux only (GNOME/GTK4)
 
 # run without installing
 nix run .#vit -- --help
@@ -58,6 +60,7 @@ nix run .#whetuu -- --version
 nix run .#pullrun -- --version
 nix run .#gleam-preview -- --version
 nix run .#zed-preview -- --version
+nix run .#pulp
 
 # install into your profile
 nix profile install .#vit
@@ -68,6 +71,7 @@ nix profile install .#whetuu
 nix profile install .#pullrun
 nix profile install .#gleam-preview
 nix profile install .#zed-preview
+nix profile install .#pulp
 ```
 
 ## Updating packages
@@ -107,6 +111,21 @@ Supported types:
 
 `npm-github` packages are expected to use `buildNpmPackage` + `fetchFromGitHub`
 with a `version` field and optional vendored `package-lock.json`.
+
+**gitlab-tag** — tagged source packages on GitLab (including GNOME GitLab):
+
+```json
+{
+  "type": "gitlab-tag",
+  "domain": "gitlab.gnome.org",
+  "gitlab": "owner/repo",
+  "tag_prefix": ""
+}
+```
+
+Tracks the newest tag matching `{tag_prefix}` + numeric version (CalVer like
+`2026.4` or semver). Refreshes `version` and the `fetchFromGitLab` `hash`.
+Used by `pulp`.
 
 **github-unstable** — projects without release tags (track branch tip):
 
@@ -339,3 +358,22 @@ By hand:
    nix hash convert --hash-algo sha256 --to sri <base32>
    ```
 3. `nix build .#gleam-preview` and smoke-test `./result/bin/gleam-preview --version`.
+
+### Manual steps (pulp)
+
+`pulp` is a GNOME RSS reader built from source (Meson + Python + GTK4). Prefer
+the updater:
+
+```bash
+./scripts/update-packages.sh pulp
+```
+
+By hand:
+
+1. Bump `version` in `packages/pulp/default.nix` (e.g. `2026.4`).
+2. Prefetch the source hash:
+   ```bash
+   nix-prefetch-url --unpack "https://gitlab.gnome.org/cheywood/Pulp/-/archive/X.Y/Pulp-X.Y.tar.gz"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. Paste the SRI hash into `fetchFromGitLab.hash`, then `nix build .#pulp`.

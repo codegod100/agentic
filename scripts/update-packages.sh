@@ -759,6 +759,109 @@ open(path, "w").write(new)
   log "${name}: updated successfully to ${latest}"
 }
 
+set_fetch_from_gitlab_field() {
+  # set_fetch_from_gitlab_field <file> <attr> <value>
+  # Replaces attr = "..." inside the first fetchFromGitLab { ... } block.
+  local file="$1" attr="$2" value="$3"
+  python3 -c '
+import re, sys
+path, attr, value = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path).read()
+pat = re.compile(
+    rf"(fetchFromGitLab\s*\{{[^}}]*?{re.escape(attr)}\s*=\s*\")([^\"]+)(\")",
+    re.S,
+)
+new, n = pat.subn(rf"\g<1>{value}\g<3>", text, count=1)
+if n != 1:
+    sys.exit(f"failed to set fetchFromGitLab.{attr} in {path} (matches={n})")
+open(path, "w").write(new)
+' "$file" "$attr" "$value"
+}
+
+latest_gitlab_tag() {
+  # latest_gitlab_tag <domain> <owner/repo> <prefix>
+  # Prints bare version (without prefix). Matches CalVer (2026.4) and semver.
+  local domain="$1" project="$2" prefix="$3"
+  local encoded
+  encoded="$(python3 -c 'import urllib.parse,sys; print(urllib.parse.quote(sys.argv[1], safe=""))' "$project")"
+  local url="https://${domain}/api/v4/projects/${encoded}/repository/tags?per_page=50"
+  curl -fsSL "$url" | python3 -c '
+import json, re, sys
+prefix = sys.argv[1]
+tags = json.load(sys.stdin)
+# Allow 2+ numeric components so CalVer (2026.4) and semver both match.
+pat = re.compile(
+    r"^" + re.escape(prefix) + r"(\d+(?:\.\d+)+(?:[-+][0-9A-Za-z.-]+)?)$"
+)
+versions = []
+for t in tags:
+    name = t.get("name") or ""
+    m = pat.match(name)
+    if m:
+        versions.append(m.group(1))
+if not versions:
+    sys.exit("no matching GitLab tags for prefix " + repr(prefix))
+def key(v):
+    core = re.split(r"[+-]", v, maxsplit=1)[0]
+    return [int(x) for x in core.split(".")]
+versions.sort(key=key)
+print(versions[-1])
+' "$prefix"
+}
+
+update_gitlab_tag() {
+  # Source package from a GitLab release tag (fetchFromGitLab).
+  # upstream.json:
+  #   type: gitlab-tag
+  #   domain: "gitlab.gnome.org"
+  #   gitlab: "owner/repo"
+  #   tag_prefix: "" | "v"
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+  local domain project tag_prefix
+  domain="$(read_field "$upstream" domain)"
+  project="$(read_field "$upstream" gitlab)"
+  tag_prefix="$(read_field "$upstream" tag_prefix)"
+  [[ -n "$domain" ]] || die "${name}: upstream.json missing domain"
+  [[ -n "$project" ]] || die "${name}: upstream.json missing gitlab"
+  tag_prefix="${tag_prefix:-}"
+
+  local cur latest
+  cur="$(current_version "$default_nix")"
+  log "${name}: current=${cur}"
+  latest="$(latest_gitlab_tag "$domain" "$project" "$tag_prefix")"
+  log "${name}: latest upstream=${latest}"
+
+  if ! version_gt "$latest" "$cur"; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  if [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: OUTDATED (${cur} -> ${latest})"
+    return 10
+  fi
+
+  log "${name}: updating ${cur} -> ${latest}"
+  set_field_string "$default_nix" version "$latest"
+
+  # Prefer owner/repo basename for archive name (GitLab convention).
+  local repo_name
+  repo_name="${project##*/}"
+  local tag="${tag_prefix}${latest}"
+  local src_url src_hash
+  src_url="https://${domain}/${project}/-/archive/${tag}/${repo_name}-${tag}.tar.gz"
+  log "${name}: prefetching src ${src_url}"
+  src_hash="$(sri_from_url_unpack "$src_url")"
+  set_fetch_from_gitlab_field "$default_nix" hash "$src_hash"
+  log "${name}: src hash ${src_hash}"
+
+  verify_build "$name"
+  log "${name}: updated successfully to ${latest}"
+}
+
 update_github_unstable() {
   # Track tip of a branch for projects without release tags.
   # version format: 0-unstable-YYYY-MM-DD
@@ -831,6 +934,9 @@ for name in "${PACKAGES[@]}"; do
       ;;
     url-manifest-binary)
       update_url_manifest_binary "$name" || status=$?
+      ;;
+    gitlab-tag)
+      update_gitlab_tag "$name" || status=$?
       ;;
     *)
       die "${name}: unsupported upstream type '${type}'"

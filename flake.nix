@@ -53,6 +53,10 @@
           # Official preview tarball is only fetched for x86_64-linux.
           zed-preview = pkgs.callPackage ./packages/zed-preview { };
         }
+        // pkgs.lib.optionalAttrs (pkgs.lib.hasSuffix "-linux" system) {
+          # GNOME/GTK4 RSS reader; Linux only (WebKitGTK + libadwaita).
+          pulp = pkgs.callPackage ./packages/pulp { };
+        }
       );
 
       # Convenience: `nix run .#vit -- --help`, `nix run .#spinel -- --help`
@@ -105,6 +109,12 @@
           zed-preview = {
             type = "app";
             program = "${self.packages.${system}.zed-preview}/bin/zed-preview";
+          };
+        }
+        // nixpkgs.lib.optionalAttrs (nixpkgs.lib.hasSuffix "-linux" system) {
+          pulp = {
+            type = "app";
+            program = "${self.packages.${system}.pulp}/bin/pulp";
           };
         }
       );

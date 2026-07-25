@@ -1,0 +1,7 @@
+{
+  "type": "gitlab-tag",
+  "domain": "gitlab.gnome.org",
+  "gitlab": "cheywood/Pulp",
+  "tag_prefix": "",
+  "description": "GNOME RSS reader (Python/GTK4/libadwaita). Tracks GitLab release tags (CalVer, e.g. 2026.4)."
+}
