@@ -37,6 +37,8 @@
           whetuu = pkgs.callPackage ./packages/whetuu { };
           pullrun = pkgs.callPackage ./packages/pullrun { };
           gleam-preview = pkgs.callPackage ./packages/gleam-preview { };
+          # Wrapper around scripts/update-packages.sh (needs a writable checkout).
+          update = pkgs.callPackage ./packages/update { };
           default = self.packages.${system}.vit;
         }
         // pkgs.lib.optionalAttrs (
@@ -48,14 +50,21 @@
         ) {
           # Official prebuilt CLI (static binary); no darwin-x86_64 upstream.
           boxd = pkgsUnfree.callPackage ./packages/boxd { };
+          # Official prebuilt CLI/server; no darwin-x86_64; aarch64-linux is Neoverse/Graviton.
+          lore = pkgs.callPackage ./packages/lore { };
+          loreserver = pkgs.callPackage ./packages/loreserver { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Official preview tarball is only fetched for x86_64-linux.
           zed-preview = pkgs.callPackage ./packages/zed-preview { };
+          # Official prebuilt IRC client tarball; only x86_64-linux upstream.
+          halloy = pkgs.callPackage ./packages/halloy { };
         }
         // pkgs.lib.optionalAttrs (pkgs.lib.hasSuffix "-linux" system) {
           # GNOME/GTK4 RSS reader; Linux only (WebKitGTK + libadwaita).
           pulp = pkgs.callPackage ./packages/pulp { };
+          # GTK4/libadwaita default-app manager; Linux only.
+          mimic = pkgs.callPackage ./packages/mimic { };
         }
       );
 
@@ -91,6 +100,10 @@
             type = "app";
             program = "${self.packages.${system}.gleam-preview}/bin/gleam-preview";
           };
+          update = {
+            type = "app";
+            program = "${self.packages.${system}.update}/bin/update";
+          };
           default = self.apps.${system}.vit;
         }
         // nixpkgs.lib.optionalAttrs (
@@ -104,17 +117,33 @@
             type = "app";
             program = "${self.packages.${system}.boxd}/bin/boxd";
           };
+          lore = {
+            type = "app";
+            program = "${self.packages.${system}.lore}/bin/lore";
+          };
+          loreserver = {
+            type = "app";
+            program = "${self.packages.${system}.loreserver}/bin/loreserver";
+          };
         }
         // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
           zed-preview = {
             type = "app";
             program = "${self.packages.${system}.zed-preview}/bin/zed-preview";
           };
+          halloy = {
+            type = "app";
+            program = "${self.packages.${system}.halloy}/bin/halloy";
+          };
         }
         // nixpkgs.lib.optionalAttrs (nixpkgs.lib.hasSuffix "-linux" system) {
           pulp = {
             type = "app";
             program = "${self.packages.${system}.pulp}/bin/pulp";
+          };
+          mimic = {
+            type = "app";
+            program = "${self.packages.${system}.mimic}/bin/mimic";
           };
         }
       );

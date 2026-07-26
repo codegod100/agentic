@@ -34,7 +34,11 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `pullrun` | [pullrun/pullrun](https://github.com/pullrun/pullrun) | `curl -fsSL https://github.com/pullrun/pullrun/raw/main/install.sh \| bash` |
 | `gleam-preview` | [gleam-lang/gleam](https://github.com/gleam-lang/gleam) (prereleases) | [install docs](https://gleam.run/getting-started/installing/) / release tarballs |
 | `zed-preview` | [zed-industries/zed](https://github.com/zed-industries/zed) (preview channel) | [official Linux installer](https://zed.dev/docs/linux) / `zed-linux-x86_64.tar.gz` |
+| `halloy` | [squidowl/halloy](https://github.com/squidowl/halloy) | [GitHub releases](https://github.com/squidowl/halloy/releases) / `halloy-*-x86_64-linux.tar.gz` |
 | `pulp` | [cheywood/Pulp](https://gitlab.gnome.org/cheywood/Pulp) | [Flathub](https://flathub.org/apps/details/org.gnome.gitlab.cheywood.Pulp) |
+| `mimic` | [ArijanJ/Mimic](https://github.com/ArijanJ/Mimic) | [Flathub](https://flathub.org/apps/io.github.arijanj.Mimic) |
+| `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
+| `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
 
 ## Usage
 
@@ -48,7 +52,11 @@ nix build .#whetuu        # linux + darwin (all four systems)
 nix build .#pullrun       # linux + darwin (all four systems)
 nix build .#gleam-preview # linux + darwin (all four systems)
 nix build .#zed-preview   # x86_64-linux only
+nix build .#halloy        # x86_64-linux only
 nix build .#pulp          # linux only (GNOME/GTK4)
+nix build .#mimic         # linux only (GTK4/libadwaita)
+nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
+nix build .#loreserver    # same platforms as lore
 
 # run without installing
 nix run .#vit -- --help
@@ -60,7 +68,11 @@ nix run .#whetuu -- --version
 nix run .#pullrun -- --version
 nix run .#gleam-preview -- --version
 nix run .#zed-preview -- --version
+nix run .#halloy -- --version
 nix run .#pulp
+nix run .#mimic
+nix run .#lore -- --version
+nix run .#loreserver -- --version
 
 # install into your profile
 nix profile install .#vit
@@ -71,7 +83,11 @@ nix profile install .#whetuu
 nix profile install .#pullrun
 nix profile install .#gleam-preview
 nix profile install .#zed-preview
+nix profile install .#halloy
 nix profile install .#pulp
+nix profile install .#mimic
+nix profile install .#lore
+nix profile install .#loreserver
 ```
 
 ## Updating packages
@@ -87,12 +103,15 @@ A GitHub Action runs **every Monday** (and on manual dispatch) to:
 5. Open a PR on branch `chore/update-packages` if anything changed
 
 ```bash
-# local dry-run: exit 1 if any package is behind upstream
-./scripts/update-packages.sh --check
+# preferred: flake app (wraps scripts/update-packages.sh; run from this checkout)
+nix run .#update -- --check   # dry-run: exit 1 if any package is behind
+nix run .#update              # bump all packages from upstream
+nix run .#update -- vit       # one package
 
-# apply updates locally (requires nix, curl, npm)
-./scripts/update-packages.sh          # all packages
-./scripts/update-packages.sh vit      # one package
+# same script directly
+./scripts/update-packages.sh --check
+./scripts/update-packages.sh
+./scripts/update-packages.sh vit
 ```
 
 ### `upstream.json`
@@ -126,6 +145,19 @@ with a `version` field and optional vendored `package-lock.json`.
 Tracks the newest tag matching `{tag_prefix}` + numeric version (CalVer like
 `2026.4` or semver). Refreshes `version` and the `fetchFromGitLab` `hash`.
 Used by `pulp`.
+
+**github-tag** — tagged source packages on GitHub (no npm lockfile):
+
+```json
+{
+  "type": "github-tag",
+  "github": "owner/repo",
+  "tag_prefix": "v"
+}
+```
+
+Tracks the newest tag matching `{tag_prefix}` + semver. Refreshes `version`
+and the `fetchFromGitHub` `hash`. Used by `mimic`.
 
 **github-unstable** — projects without release tags (track branch tip):
 
@@ -172,12 +204,14 @@ Multi-platform (`sources = { … }` block, like `url-manifest-binary`):
 ```
 
 Tracks the newest non-draft GitHub release whose tag matches
-`{tag_prefix}{semver}{tag_suffix}`. Set `"tag_prerelease": true` to match any
-prerelease tag (`vX.Y.Z-rc1`, `vX.Y.Z-beta`, …) instead of a fixed suffix.
-Single-asset mode refreshes one `fetchurl` hash; multi-platform mode rewrites
-every `sources.<system>.{url,hash}`. `{version}` in asset names is the bare
-version (no tag prefix). Used by `zed-preview` (single), `whetuu` /
-`gleam-preview` / `pullrun` (multi).
+`{tag_prefix}{version}{tag_suffix}` (semver or CalVer with 2+ numeric
+components). Set `"tag_prefix": ""` for unprefixed tags (e.g. Halloy `2026.8`).
+Set `"tag_prerelease": true` to match any prerelease tag (`vX.Y.Z-rc1`,
+`vX.Y.Z-beta`, …) instead of a fixed suffix. Single-asset mode refreshes one
+`fetchurl` hash; multi-platform mode rewrites every `sources.<system>.{url,hash}`.
+`{version}` in asset names is the bare version (no tag prefix). Used by
+`zed-preview` (single), `whetuu` / `gleam-preview` / `pullrun` / `halloy`
+(multi; halloy is x86_64-linux only).
 
 **url-manifest-binary** — prebuilt multi-platform binaries via a version
 manifest URL (not GitHub releases):
@@ -359,6 +393,25 @@ By hand:
    ```
 3. `nix build .#gleam-preview` and smoke-test `./result/bin/gleam-preview --version`.
 
+### Manual steps (halloy)
+
+`halloy` ships an official Linux x86_64 release tarball (IRC client). Prefer the
+updater:
+
+```bash
+./scripts/update-packages.sh halloy
+```
+
+By hand:
+
+1. Bump `version` in `packages/halloy/default.nix` (e.g. `2026.8`).
+2. Update `sources.x86_64-linux.url` and prefetch:
+   ```bash
+   nix-prefetch-url "https://github.com/squidowl/halloy/releases/download/X.Y/halloy-X.Y-x86_64-linux.tar.gz"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. `nix build .#halloy` and smoke-test `./result/bin/halloy --version`.
+
 ### Manual steps (pulp)
 
 `pulp` is a GNOME RSS reader built from source (Meson + Python + GTK4). Prefer
@@ -377,3 +430,33 @@ By hand:
    nix hash convert --hash-algo sha256 --to sri <base32>
    ```
 3. Paste the SRI hash into `fetchFromGitLab.hash`, then `nix build .#pulp`.
+
+### Manual steps (lore / loreserver)
+
+`lore` and `loreserver` ship separate multi-platform release tarballs (dynamic
+glibc on Linux; no darwin-x86_64; aarch64-linux is Neoverse/Graviton only).
+Prefer the updater:
+
+```bash
+./scripts/update-packages.sh lore
+./scripts/update-packages.sh loreserver
+```
+
+By hand:
+
+1. Bump `version` in `packages/lore/default.nix` and
+   `packages/loreserver/default.nix` (e.g. `0.8.5`).
+2. Update each `sources.<system>.url` to the matching release asset and prefetch:
+   ```bash
+   # lore CLI
+   nix-prefetch-url "https://github.com/EpicGames/lore/releases/download/vX.Y.Z/lore-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz"
+   nix-prefetch-url "https://github.com/EpicGames/lore/releases/download/vX.Y.Z/lore-vX.Y.Z-aarch64-unknown-linux-gnu-neoverse-512tvb.tar.gz"
+   nix-prefetch-url "https://github.com/EpicGames/lore/releases/download/vX.Y.Z/lore-vX.Y.Z-aarch64-apple-darwin.tar.gz"
+   # loreserver
+   nix-prefetch-url "https://github.com/EpicGames/lore/releases/download/vX.Y.Z/loreserver-vX.Y.Z-x86_64-unknown-linux-gnu.tar.gz"
+   nix-prefetch-url "https://github.com/EpicGames/lore/releases/download/vX.Y.Z/loreserver-vX.Y.Z-aarch64-unknown-linux-gnu-neoverse-512tvb.tar.gz"
+   nix-prefetch-url "https://github.com/EpicGames/lore/releases/download/vX.Y.Z/loreserver-vX.Y.Z-aarch64-apple-darwin.tar.gz"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. `nix build .#lore` / `nix build .#loreserver` and smoke-test
+   `./result/bin/lore --version` / `./result/bin/loreserver --version`.

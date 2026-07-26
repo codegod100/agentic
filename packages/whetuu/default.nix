@@ -33,7 +33,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "whetuu";
-  version = "0.1.5";
+  version = "0.1.9";
 
   src = fetchurl {
     inherit (srcAttrs) url hash;

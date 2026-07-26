@@ -34,7 +34,7 @@ in
 stdenv.mkDerivation (finalAttrs: {
   pname = "gleam-preview";
   # Official prerelease tags are vX.Y.Z-rcN (and similar) on GitHub.
-  version = "1.18.0-rc1";
+  version = "1.18.0-rc2";
 
   src = fetchurl {
     inherit (srcAttrs) url hash;

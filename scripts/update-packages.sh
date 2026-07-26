@@ -427,12 +427,13 @@ prefix, suffix, prerelease = sys.argv[1], sys.argv[2], sys.argv[3] == "1"
 releases = json.load(sys.stdin)
 if prerelease:
     # Any prerelease/build tag: v1.18.0-rc1, v1.18.0-beta.2, …
+    # 2+ numeric components so CalVer (2026.8-rc1) and semver both match.
     pat = re.compile(
-        r"^" + re.escape(prefix) + r"(\d+\.\d+\.\d+[-+][0-9A-Za-z.-]+)$"
+        r"^" + re.escape(prefix) + r"(\d+(?:\.\d+)+[-+][0-9A-Za-z.-]+)$"
     )
 else:
     pat = re.compile(
-        r"^" + re.escape(prefix) + r"(\d+\.\d+\.\d+)" + re.escape(suffix) + r"$"
+        r"^" + re.escape(prefix) + r"(\d+(?:\.\d+)+)" + re.escape(suffix) + r"$"
     )
 versions = []
 for r in releases:
@@ -449,7 +450,7 @@ if not versions:
     kind = "prerelease" if prerelease else "prefix=%r suffix=%r" % (prefix, suffix)
     sys.exit("no matching release tags for " + kind)
 def key(v):
-    m = re.match(r"^(\d+\.\d+\.\d+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$", v)
+    m = re.match(r"^(\d+(?:\.\d+)+)(?:-([0-9A-Za-z.-]+))?(?:\+.*)?$", v)
     core = [int(x) for x in m.group(1).split(".")]
     pre = m.group(2) or ""
     # Prefer higher core; among same core, sort pre parts (rc2 > rc1).
@@ -495,11 +496,20 @@ update_github_release_binary() {
   local upstream="$pkg_dir/upstream.json"
   local repo tag_prefix tag_suffix asset
   repo="$(read_field "$upstream" github)"
-  tag_prefix="$(read_field "$upstream" tag_prefix)"
   tag_suffix="$(read_field "$upstream" tag_suffix)"
   asset="$(read_field "$upstream" asset)"
   [[ -n "$repo" ]] || die "${name}: upstream.json missing github"
-  tag_prefix="${tag_prefix:-v}"
+  # Default to "v" only when the key is absent; empty string is intentional
+  # (CalVer tags like 2026.8 with no prefix).
+  if python3 -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+sys.exit(0 if "tag_prefix" in u else 1)
+' "$upstream" 2>/dev/null; then
+    tag_prefix="$(read_field "$upstream" tag_prefix)"
+  else
+    tag_prefix="v"
+  fi
   tag_suffix="${tag_suffix:-}"
 
   local has_platforms=0
@@ -564,7 +574,8 @@ import json, re, subprocess, sys
 
 upstream = json.load(open(sys.argv[1]))
 repo = upstream["github"]
-prefix = upstream.get("tag_prefix") or "v"
+# Empty tag_prefix is intentional (no "v"); only default when key is missing.
+prefix = upstream["tag_prefix"] if "tag_prefix" in upstream else "v"
 version = sys.argv[2]
 platforms = upstream["platforms"]
 if not platforms:
@@ -864,6 +875,52 @@ update_gitlab_tag() {
   log "${name}: updated successfully to ${latest}"
 }
 
+update_github_tag() {
+  # Source package from a GitHub release tag (fetchFromGitHub).
+  # upstream.json:
+  #   type: github-tag
+  #   github: "owner/repo"
+  #   tag_prefix: "" | "v"
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+  local repo tag_prefix
+  repo="$(read_field "$upstream" github)"
+  tag_prefix="$(read_field "$upstream" tag_prefix)"
+  [[ -n "$repo" ]] || die "${name}: upstream.json missing github"
+  tag_prefix="${tag_prefix:-v}"
+
+  local cur latest
+  cur="$(current_version "$default_nix")"
+  log "${name}: current=${cur}"
+  latest="$(latest_github_tag "$repo" "$tag_prefix")"
+  log "${name}: latest upstream=${latest}"
+
+  if ! version_gt "$latest" "$cur"; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  if [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: OUTDATED (${cur} -> ${latest})"
+    return 10
+  fi
+
+  log "${name}: updating ${cur} -> ${latest}"
+  set_field_string "$default_nix" version "$latest"
+
+  local src_url src_hash
+  src_url="https://github.com/${repo}/archive/refs/tags/${tag_prefix}${latest}.tar.gz"
+  log "${name}: prefetching src ${src_url}"
+  src_hash="$(sri_from_url_unpack "$src_url")"
+  set_fetch_from_github_field "$default_nix" hash "$src_hash"
+  log "${name}: src hash ${src_hash}"
+
+  verify_build "$name"
+  log "${name}: updated successfully to ${latest}"
+}
+
 update_github_unstable() {
   # Track tip of a branch for projects without release tags.
   # version format: 0-unstable-YYYY-MM-DD
@@ -939,6 +996,9 @@ for name in "${PACKAGES[@]}"; do
       ;;
     gitlab-tag)
       update_gitlab_tag "$name" || status=$?
+      ;;
+    github-tag)
+      update_github_tag "$name" || status=$?
       ;;
     *)
       die "${name}: unsupported upstream type '${type}'"

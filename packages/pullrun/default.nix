@@ -33,7 +33,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "pullrun";
-  version = "0.6.7";
+  version = "0.7.6";
 
   src = fetchurl {
     inherit (srcAttrs) url hash;

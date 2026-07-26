@@ -1,0 +1,9 @@
+{
+  "type": "github-release-binary",
+  "github": "squidowl/halloy",
+  "tag_prefix": "",
+  "platforms": {
+    "x86_64-linux": "halloy-{version}-x86_64-linux.tar.gz"
+  },
+  "description": "Official Linux x86_64 release tarball (bin + desktop + icons). Tracks latest CalVer GitHub release (e.g. 2026.8) and refreshes the fetchurl hash."
+}

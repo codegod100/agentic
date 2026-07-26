@@ -16,7 +16,7 @@
 stdenv.mkDerivation (finalAttrs: {
   pname = "zed-preview";
   # Official preview channel tags are vX.Y.Z-pre (prerelease on GitHub).
-  version = "1.12.0-pre";
+  version = "1.13.0-pre";
 
   src = fetchurl {
     url = "https://github.com/zed-industries/zed/releases/download/v${finalAttrs.version}/zed-linux-x86_64.tar.gz";

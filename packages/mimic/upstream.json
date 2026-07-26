@@ -1,0 +1,6 @@
+{
+  "type": "github-tag",
+  "github": "ArijanJ/Mimic",
+  "tag_prefix": "v",
+  "description": "GTK4/libadwaita default-app manager. Tracks GitHub release tags (vX.Y.Z)."
+}

@@ -1,0 +1,11 @@
+{
+  "type": "github-release-binary",
+  "github": "EpicGames/lore",
+  "tag_prefix": "v",
+  "platforms": {
+    "x86_64-linux": "lore-v{version}-x86_64-unknown-linux-gnu.tar.gz",
+    "aarch64-linux": "lore-v{version}-aarch64-unknown-linux-gnu-neoverse-512tvb.tar.gz",
+    "aarch64-darwin": "lore-v{version}-aarch64-apple-darwin.tar.gz"
+  },
+  "description": "Official multi-platform CLI release tarballs (dynamic glibc on Linux). Tracks latest vX.Y.Z GitHub release. aarch64-linux is the Neoverse/Graviton build upstream ships; no darwin-x86_64 asset."
+}
