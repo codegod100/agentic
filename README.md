@@ -37,6 +37,8 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `halloy` | [squidowl/halloy](https://github.com/squidowl/halloy) | [GitHub releases](https://github.com/squidowl/halloy/releases) / `halloy-*-x86_64-linux.tar.gz` |
 | `pulp` | [cheywood/Pulp](https://gitlab.gnome.org/cheywood/Pulp) | [Flathub](https://flathub.org/apps/details/org.gnome.gitlab.cheywood.Pulp) |
 | `mimic` | [ArijanJ/Mimic](https://github.com/ArijanJ/Mimic) | [Flathub](https://flathub.org/apps/io.github.arijanj.Mimic) |
+| `portfolio` | [tchx84/Portfolio](https://github.com/tchx84/Portfolio) | [Flathub](https://flathub.org/apps/details/dev.tchx84.Portfolio) |
+| `eyg` | [CrowdHailer/eyg-lang](https://github.com/CrowdHailer/eyg-lang) | `curl -fsSL https://eyg.run/install \| bash` |
 | `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
 | `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
 
@@ -55,6 +57,8 @@ nix build .#zed-preview   # x86_64-linux only
 nix build .#halloy        # x86_64-linux only
 nix build .#pulp          # linux only (GNOME/GTK4)
 nix build .#mimic         # linux only (GTK4/libadwaita)
+nix build .#portfolio     # linux only (GTK4/libadwaita file manager)
+nix build .#eyg           # linux + darwin (all four systems)
 nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#loreserver    # same platforms as lore
 
@@ -71,6 +75,9 @@ nix run .#zed-preview -- --version
 nix run .#halloy -- --version
 nix run .#pulp
 nix run .#mimic
+nix run .#portfolio
+nix run .#eyg -- --version
+nix run .#eyg -- eval -c '!int_add(1, 1)'
 nix run .#lore -- --version
 nix run .#loreserver -- --version
 
@@ -86,6 +93,8 @@ nix profile install .#zed-preview
 nix profile install .#halloy
 nix profile install .#pulp
 nix profile install .#mimic
+nix profile install .#portfolio
+nix profile install .#eyg
 nix profile install .#lore
 nix profile install .#loreserver
 ```
@@ -430,6 +439,25 @@ By hand:
    nix hash convert --hash-algo sha256 --to sri <base32>
    ```
 3. Paste the SRI hash into `fetchFromGitLab.hash`, then `nix build .#pulp`.
+
+### Manual steps (portfolio)
+
+`portfolio` is a minimalist GTK4 file manager built from source (Meson + Python).
+Prefer the updater:
+
+```bash
+./scripts/update-packages.sh portfolio
+```
+
+By hand:
+
+1. Bump `version` in `packages/portfolio/default.nix` (e.g. `1.0.3`).
+2. Prefetch the source hash:
+   ```bash
+   nix-prefetch-url --unpack "https://github.com/tchx84/Portfolio/archive/refs/tags/vX.Y.Z.tar.gz"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. Paste the SRI hash into `fetchFromGitHub.hash`, then `nix build .#portfolio`.
 
 ### Manual steps (lore / loreserver)
 

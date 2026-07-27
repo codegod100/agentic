@@ -1,0 +1,12 @@
+{
+  "type": "github-release-binary",
+  "github": "CrowdHailer/eyg-lang",
+  "tag_prefix": "gleam_cli-v",
+  "platforms": {
+    "x86_64-linux": "eyg-linux-x64",
+    "aarch64-linux": "eyg-linux-arm64",
+    "x86_64-darwin": "eyg-macos-x64",
+    "aarch64-darwin": "eyg-macos-arm64"
+  },
+  "description": "Official multi-platform eyg CLI binaries (dynamic glibc on Linux). Tracks gleam_cli-vX.Y.Z GitHub releases; assets are bare executables matching install.sh."
+}

@@ -37,6 +37,8 @@
           whetuu = pkgs.callPackage ./packages/whetuu { };
           pullrun = pkgs.callPackage ./packages/pullrun { };
           gleam-preview = pkgs.callPackage ./packages/gleam-preview { };
+          # Official prebuilt EYG CLI (linux + darwin; dynamic glibc on Linux).
+          eyg = pkgs.callPackage ./packages/eyg { };
           # Wrapper around scripts/update-packages.sh (needs a writable checkout).
           update = pkgs.callPackage ./packages/update { };
           default = self.packages.${system}.vit;
@@ -65,6 +67,8 @@
           pulp = pkgs.callPackage ./packages/pulp { };
           # GTK4/libadwaita default-app manager; Linux only.
           mimic = pkgs.callPackage ./packages/mimic { };
+          # Minimalist GTK4/libadwaita file manager (mobile-friendly); Linux only.
+          portfolio = pkgs.callPackage ./packages/portfolio { };
         }
       );
 
@@ -99,6 +103,10 @@
           gleam-preview = {
             type = "app";
             program = "${self.packages.${system}.gleam-preview}/bin/gleam-preview";
+          };
+          eyg = {
+            type = "app";
+            program = "${self.packages.${system}.eyg}/bin/eyg";
           };
           update = {
             type = "app";
@@ -144,6 +152,10 @@
           mimic = {
             type = "app";
             program = "${self.packages.${system}.mimic}/bin/mimic";
+          };
+          portfolio = {
+            type = "app";
+            program = "${self.packages.${system}.portfolio}/bin/portfolio";
           };
         }
       );

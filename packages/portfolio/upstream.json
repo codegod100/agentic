@@ -1,0 +1,6 @@
+{
+  "type": "github-tag",
+  "github": "tchx84/Portfolio",
+  "tag_prefix": "v",
+  "description": "Minimalist GTK4/libadwaita file manager for Linux mobile. Tracks GitHub release tags (vX.Y.Z)."
+}
