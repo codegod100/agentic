@@ -11,15 +11,15 @@ let
   sources = {
     x86_64-linux = {
       url = "https://boxd.sh/downloads/cli/boxd-linux-amd64";
-      hash = "sha256-TlUeF41JcsMekeGx4y8dKyjTQ/oyHwJrSxRFLD2nYpc=";
+      hash = "sha256-5v/eSZ5a1dnmnlalKQeEBn8KOP1kyUhuv+6h/X/xxSY=";
     };
     aarch64-linux = {
       url = "https://boxd.sh/downloads/cli/boxd-linux-arm64";
-      hash = "sha256-TVCIe9i6AdfltOBGiGWbpor0lPNX40sK3Xt35IJWOeE=";
+      hash = "sha256-xmyOyh9FVkFoxSenZeIT7dj6RKYEDVazEp7BcOv5boc=";
     };
     aarch64-darwin = {
       url = "https://boxd.sh/downloads/cli/boxd-darwin-arm64";
-      hash = "sha256-rSJjp67z+yES7DGDiUIKpi6jThGpN7nb8UwuOJ4zAT4=";
+      hash = "sha256-S+dYGGkTOHMvyfYlIICrXO5k3s6Q5DrKRODZmeRC/gs=";
     };
   };
 
@@ -28,7 +28,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "boxd";
-  version = "0.1.23";
+  version = "0.2.3";
 
   src = fetchurl {
     inherit (srcAttrs) url hash;
@@ -44,7 +44,8 @@ stdenv.mkDerivation (finalAttrs: {
 
   nativeInstallCheckInputs = [ versionCheckHook ];
   versionCheckProgram = "${placeholder "out"}/bin/boxd";
-  versionCheckProgramArg = "--version";
+  # 0.2.x uses a subcommand; --version is no longer accepted.
+  versionCheckProgramArg = "version";
   doInstallCheck = true;
 
   meta = {

@@ -738,10 +738,12 @@ keys = [k for k in order if k in sources] + sorted(k for k in sources if k not i
 
 def fmt_entry(sysname):
     e = sources[sysname]
+    # Double-quoted dict keys: this snippet is embedded in bash single quotes.
+    url, h = e["url"], e["hash"]
     return (
         f"    {sysname} = {{\n"
-        f"      url = \"{e['url']}\";\n"
-        f"      hash = \"{e['hash']}\";\n"
+        f"      url = \"{url}\";\n"
+        f"      hash = \"{h}\";\n"
         f"    }};"
     )
 
