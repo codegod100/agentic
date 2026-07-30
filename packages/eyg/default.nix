@@ -2,7 +2,7 @@
   lib,
   stdenv,
   fetchurl,
-  autoPatchelfHook,
+  runtimeShell,
 }:
 
 let
@@ -43,16 +43,34 @@ stdenv.mkDerivation (finalAttrs: {
 
   dontUnpack = true;
 
-  # Bun-packaged binary; strip would corrupt the embedded JS/runtime payload.
+  # Bun `build --compile` embeds the JS payload by absolute file offset.
+  # autoPatchelf/patchelf rewrites the ELF (longer INTERP, shifted sections)
+  # and shifts those offsets → SIGSEGV / core dump at runtime. Leave the
+  # binary byte-identical and run it via the nix dynamic linker instead.
   dontStrip = true;
+  dontPatchELF = true;
 
-  nativeBuildInputs = lib.optionals stdenv.hostPlatform.isLinux [ autoPatchelfHook ];
-
-  installPhase = ''
-    runHook preInstall
-    install -Dm755 $src $out/bin/eyg
-    runHook postInstall
-  '';
+  installPhase =
+    if stdenv.hostPlatform.isLinux then
+      ''
+        runHook preInstall
+        install -Dm755 $src $out/libexec/eyg
+        mkdir -p $out/bin
+        cat > $out/bin/eyg <<EOF
+        #!${runtimeShell}
+        # Do not rewrite the Bun-compiled ELF; exec through the dynamic linker.
+        exec ${stdenv.cc.bintools.dynamicLinker} $out/libexec/eyg "\$@"
+        EOF
+        chmod +x $out/bin/eyg
+        runHook postInstall
+      ''
+    else
+      ''
+        runHook preInstall
+        # macOS binaries are not Bun-ELF/patchelf-sensitive the same way.
+        install -Dm755 $src $out/bin/eyg
+        runHook postInstall
+      '';
 
   # Binary self-reports "eyg 0.0.0" (not the release tag), so skip versionCheckHook.
   doInstallCheck = true;
