@@ -27,13 +27,13 @@ in
 stdenv.mkDerivation (finalAttrs: {
   pname = "spinel";
   # No upstream tags yet — date-stamped unstable version of a pinned commit.
-  version = "0-unstable-2026-07-26";
+  version = "0-unstable-2026-07-27";
 
   src = fetchFromGitHub {
     owner = "matz";
     repo = "spinel";
-    rev = "c51b0a1c08d5721732ef3588f7fb8c441d7afaa9";
-    hash = "sha256-sXqJl7DY7yebuS3L4c9I4RmPX+qwz9qArhjwY+M9w/M=";
+    rev = "eac3eecb2d9a860bbf9c0f3ad76554bc0c1f1826";
+    hash = "sha256-7uBw7ut+gMePaP/2Y5L7sBCYxXN9yRq7YTBlP01vGSg=";
   };
 
   nativeBuildInputs = [ makeWrapper ];
