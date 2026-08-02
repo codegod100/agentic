@@ -10,20 +10,20 @@ let
   # Asset names: gleam-v{version}-{target}.tar.gz — each archive is a single `gleam`.
   sources = {
     x86_64-linux = {
-      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc1/gleam-v1.18.0-rc1-x86_64-unknown-linux-musl.tar.gz";
-      hash = "sha256-4nCA6pli6Z7O2Uy8A+ffHgnEd2ATBQo/zA+nWFyKqlo=";
+      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc2/gleam-v1.18.0-rc2-x86_64-unknown-linux-musl.tar.gz";
+      hash = "sha256-9lcProE0cVc0T9lIGPZ1TL/IUn12FvTtnaytocYyTII=";
     };
     aarch64-linux = {
-      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc1/gleam-v1.18.0-rc1-aarch64-unknown-linux-musl.tar.gz";
-      hash = "sha256-d3z6GuSUIDEYWweSNZba0Pgxd/88LJ1riwkDbxsrAms=";
+      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc2/gleam-v1.18.0-rc2-aarch64-unknown-linux-musl.tar.gz";
+      hash = "sha256-vynJu5dTDwl66eQJpkVMD9MTp/k+f0KucJopM/LTDaA=";
     };
     x86_64-darwin = {
-      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc1/gleam-v1.18.0-rc1-x86_64-apple-darwin.tar.gz";
-      hash = "sha256-f1iBXb6djyTGDQ4I2o73j87zqBxFnFuECe9JhjiwAkU=";
+      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc2/gleam-v1.18.0-rc2-x86_64-apple-darwin.tar.gz";
+      hash = "sha256-y4pFm1evSL943a0zyRlPJxEqOOs/VT+5x9oEONvad6U=";
     };
     aarch64-darwin = {
-      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc1/gleam-v1.18.0-rc1-aarch64-apple-darwin.tar.gz";
-      hash = "sha256-UYDqJiHrcLnoqPFOavJBa9/RF1dBrxmOPBt6K8g5QCA=";
+      url = "https://github.com/gleam-lang/gleam/releases/download/v1.18.0-rc2/gleam-v1.18.0-rc2-aarch64-apple-darwin.tar.gz";
+      hash = "sha256-9AG5pV0CXWHQsTmTvIAk5BCT1sTu8qxI2TsLxHhxczY=";
     };
   };
 

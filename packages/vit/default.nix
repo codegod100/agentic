@@ -6,13 +6,13 @@
 
 buildNpmPackage (finalAttrs: {
   pname = "vit";
-  version = "0.6.1";
+  version = "0.6.2";
 
   src = fetchFromGitHub {
     owner = "solpbc";
     repo = "vit";
     rev = "v${finalAttrs.version}";
-    hash = "sha256-iICVLod9SnBxm/4nQuD/cecOobP7QHRgG4LZmZEUYRg=";
+    hash = "sha256-n9mniNcWly8XPhjLgsGlwJtjCYlYatNFvBuN7pz+7hg=";
   };
 
   # Upstream's package-lock.json (often produced via bun) is missing "resolved"
@@ -27,7 +27,7 @@ buildNpmPackage (finalAttrs: {
   #   1. Bump version/rev/src hash
   #   2. Regenerate packages/vit/package-lock.json (see README)
   #   3. Set npmDepsHash = lib.fakeHash, build once, paste the hash nix prints
-  npmDepsHash = "sha256-SNk+TDlrwgtVRLKD209iLvHba5laRQ9gmtMAsCgtZjU=";
+  npmDepsHash = "sha256-8PojaMjFF8mPYmFA9cM3qdaphyCMHoRvMLX/leFOf4A=";
 
   # Pure JS CLI — no compile step. Upstream Makefile runs `bun install` (dev only).
   dontNpmBuild = true;

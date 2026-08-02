@@ -15,11 +15,50 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  discover:
+    name: Discover packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: List package attrs
+        id: list
+        run: |
+          set -euo pipefail
+          system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
+          packages="$(
+            nix eval --json ".#packages.${system}" --apply 'builtins.attrNames' \
+              | jq -c '[.[] | select(. != "default" and . != "update")] | sort'
+          )"
+          count="$(jq 'length' <<<"$packages")"
+          if [ "$count" -eq 0 ]; then
+            echo "error: no packages found for ${system}" >&2
+            exit 1
+          fi
+          echo "Found ${count} packages for ${system}: $(jq -r 'join(", ")' <<<"$packages")"
+          echo "packages=${packages}" >> "$GITHUB_OUTPUT"
+
   build:
-    name: Build packages (x86_64-linux)
+    name: Build ${{ matrix.package }}
+    needs: discover
     runs-on: ubuntu-latest
     # Ladybird / Skia are long compiles; keep headroom for cold caches.
     timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.discover.outputs.packages) }}
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -39,38 +78,5 @@ jobs:
           # Pull on every run; push only from main (merges + manual dispatch).
           skipPush: ${{ github.ref != 'refs/heads/main' }}
 
-      - name: Build all flake packages
-        run: |
-          set -euo pipefail
-          system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
-          mapfile -t attrs < <(
-            nix eval --json ".#packages.${system}" --apply 'builtins.attrNames' \
-              | jq -r '.[]' \
-              | grep -vE '^(default|update)$' \
-              | sort
-          )
-          if [ "${#attrs[@]}" -eq 0 ]; then
-            echo "error: no packages found for ${system}" >&2
-            exit 1
-          fi
-          echo "Building ${#attrs[@]} packages for ${system}:"
-          printf '  - %s\n' "${attrs[@]}"
-
-          # Build one attr at a time so a single failure still lets successful
-          # packages finish (and get pushed to Cachix on main via the daemon).
-          failed=()
-          for attr in "${attrs[@]}"; do
-            echo "::group::nix build .#${attr}"
-            if nix build --no-link --print-build-logs ".#${attr}"; then
-              echo "ok: ${attr}"
-            else
-              echo "::error::failed to build .#${attr}"
-              failed+=("${attr}")
-            fi
-            echo "::endgroup::"
-          done
-
-          if [ "${#failed[@]}" -gt 0 ]; then
-            echo "Failed packages: ${failed[*]}" >&2
-            exit 1
-          fi
+      - name: Build .#${{ matrix.package }}
+        run: nix build --no-link --print-build-logs ".#${{ matrix.package }}"
