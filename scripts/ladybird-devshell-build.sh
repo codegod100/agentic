@@ -48,6 +48,8 @@ nix develop .#ladybird -c bash --norc --noprofile -lc "
   export NIX_ENFORCE_PURITY=0
   export out=$(printf '%q' "$out_dir")
   work=$(printf '%q' "$build_dir")
+  # preConfigure chmod -w's Unicode caches; make them removable on retry.
+  if [ -e \"\$work\" ]; then chmod -R u+w \"\$work\" || true; fi
   rm -rf \"\$work\"
   mkdir -p \"\$out\" \"\$work\"
   cd \"\$work\"
