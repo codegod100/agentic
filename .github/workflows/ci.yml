@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build packages (x86_64-linux)
+    runs-on: ubuntu-latest
+    # Ladybird / Skia are long compiles; keep headroom for cold caches.
+    timeout-minutes: 360
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: codegod100
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          # Pull on every run; push only from main (merges + manual dispatch).
+          skipPush: ${{ github.ref != 'refs/heads/main' }}
+
+      - name: Build all flake packages
+        run: |
+          set -euo pipefail
+          system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
+          mapfile -t attrs < <(
+            nix eval --json ".#packages.${system}" --apply 'builtins.attrNames' \
+              | jq -r '.[]' \
+              | grep -vE '^(default|update)$' \
+              | sort
+          )
+          if [ "${#attrs[@]}" -eq 0 ]; then
+            echo "error: no packages found for ${system}" >&2
+            exit 1
+          fi
+          echo "Building ${#attrs[@]} packages for ${system}:"
+          printf '  - %s\n' "${attrs[@]}"
+          targets=()
+          for attr in "${attrs[@]}"; do
+            targets+=(".#${attr}")
+          done
+          nix build --no-link --print-build-logs "${targets[@]}"
