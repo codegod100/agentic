@@ -40,9 +40,7 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `mimic` | [ArijanJ/Mimic](https://github.com/ArijanJ/Mimic) | [Flathub](https://flathub.org/apps/io.github.arijanj.Mimic) |
 | `portfolio` | [tchx84/Portfolio](https://github.com/tchx84/Portfolio) | [Flathub](https://flathub.org/apps/details/dev.tchx84.Portfolio) |
 | `eyg` | [CrowdHailer/eyg-lang](https://github.com/CrowdHailer/eyg-lang) | `curl -fsSL https://eyg.run/install \| bash` |
-| `rsvelte-fmt` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/fmt`) | `npm install -g @rsvelte/fmt` |
-| `rsvelte-lint` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/lint`) | `npm install -g @rsvelte/lint` |
-| `rsvelte-check` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/svelte-check`) | `npm install -g @rsvelte/svelte-check` |
+| `rsvelte` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/fmt`, `@rsvelte/lint`, `@rsvelte/svelte-check`) | `npm install -g @rsvelte/fmt @rsvelte/lint @rsvelte/svelte-check` |
 | `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
 | `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
 
@@ -79,9 +77,7 @@ nix build .#pulp          # linux only (GNOME/GTK4)
 nix build .#mimic         # linux only (GTK4/libadwaita)
 nix build .#portfolio     # linux only (GTK4/libadwaita file manager)
 nix build .#eyg           # linux + darwin (all four systems)
-nix build .#rsvelte-fmt   # linux + darwin (all four systems; npm prebuilt)
-nix build .#rsvelte-lint  # linux + darwin (all four systems; npm prebuilt)
-nix build .#rsvelte-check # linux + darwin (all four systems; npm prebuilt)
+nix build .#rsvelte       # linux + darwin; bins: rsvelte-fmt, rsvelte-lint, rsvelte-check
 nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#loreserver    # same platforms as lore
 
@@ -103,7 +99,7 @@ nix run .#eyg -- --version
 nix run .#eyg -- eval -c '!int_add(1, 1)'
 nix run .#rsvelte-fmt -- --version
 nix run .#rsvelte-lint -- --version
-nix run .#rsvelte-check -- --help
+nix run .#rsvelte-check -- --help   # apps from the rsvelte package
 nix run .#lore -- --version
 nix run .#loreserver -- --version
 
@@ -121,9 +117,7 @@ nix profile install .#pulp
 nix profile install .#mimic
 nix profile install .#portfolio
 nix profile install .#eyg
-nix profile install .#rsvelte-fmt
-nix profile install .#rsvelte-lint
-nix profile install .#rsvelte-check
+nix profile install .#rsvelte       # installs fmt + lint + check
 nix profile install .#lore
 nix profile install .#loreserver
 ```
@@ -270,25 +264,51 @@ manifest URL (not GitHub releases):
 `version` + `url`; the updater prefetches every platform hash and rewrites the
 `sources = { … }` block in `default.nix`. Used by `boxd`.
 
-**npm-registry-binary** — prebuilt multi-platform binaries published to npm:
+**npm-registry-binary** — prebuilt multi-platform binaries published to npm.
+
+Single-tool form:
 
 ```json
 {
   "type": "npm-registry-binary",
-  "npm": "@rsvelte/fmt",
+  "npm": "@scope/name",
   "platforms": {
-    "x86_64-linux": "@rsvelte/fmt-linux-x64-gnu",
-    "aarch64-linux": "@rsvelte/fmt-linux-arm64-gnu",
-    "x86_64-darwin": "@rsvelte/fmt-darwin-x64",
-    "aarch64-darwin": "@rsvelte/fmt-darwin-arm64"
+    "x86_64-linux": "@scope/name-linux-x64-gnu",
+    "aarch64-linux": "@scope/name-linux-arm64-gnu",
+    "x86_64-darwin": "@scope/name-darwin-x64",
+    "aarch64-darwin": "@scope/name-darwin-arm64"
   }
 }
 ```
 
 Tracks `dist-tags.latest` for the `npm` package, then rewrites every
 `sources.<system>.{url,hash}` from the matching platform package tarball
-(`https://registry.npmjs.org/@scope/pkg/-/pkg-<version>.tgz`). Used by
-`rsvelte-fmt` / `rsvelte-lint` / `rsvelte-check`.
+(`https://registry.npmjs.org/@scope/pkg/-/pkg-<version>.tgz`).
+
+Multi-tool form (one Nix package, independently versioned CLIs) — used by
+`rsvelte`:
+
+```json
+{
+  "type": "npm-registry-binary",
+  "tools": [
+    {
+      "pname": "rsvelte-fmt",
+      "npm": "@rsvelte/fmt",
+      "platforms": {
+        "x86_64-linux": "@rsvelte/fmt-linux-x64-gnu",
+        "aarch64-linux": "@rsvelte/fmt-linux-arm64-gnu",
+        "x86_64-darwin": "@rsvelte/fmt-darwin-x64",
+        "aarch64-darwin": "@rsvelte/fmt-darwin-arm64"
+      }
+    }
+  ]
+}
+```
+
+Each `tools[]` entry tracks its own `dist-tags.latest` and refreshes the
+`sources = { … }` block under the matching `pname = "…"; version = "…";` in
+`default.nix`.
 
 ### Manual steps (vit / rook)
 
@@ -508,23 +528,21 @@ By hand:
    ```
 3. Paste the SRI hash into `fetchFromGitHub.hash`, then `nix build .#portfolio`.
 
-### Manual steps (rsvelte-fmt / rsvelte-lint / rsvelte-check)
+### Manual steps (rsvelte)
 
-These ship official prebuilt CLIs via npm platform packages from
-[baseballyama/rsvelte](https://github.com/baseballyama/rsvelte). Prefer the
-updater:
+`rsvelte` ships the official prebuilt fmt / lint / check CLIs via npm platform
+packages from [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte).
+Prefer the updater (bumps each tool independently):
 
 ```bash
-./scripts/update-packages.sh rsvelte-fmt
-./scripts/update-packages.sh rsvelte-lint
-./scripts/update-packages.sh rsvelte-check
+./scripts/update-packages.sh rsvelte
 ```
 
 By hand:
 
-1. Bump `version` in each `packages/rsvelte-*/default.nix` to match npm
+1. Bump each tool `version` under `packages/rsvelte/default.nix` to match npm
    (`@rsvelte/fmt`, `@rsvelte/lint`, `@rsvelte/svelte-check`).
-2. Update each `sources.<system>.url` and prefetch:
+2. Update each tool's `sources.<system>.url` and prefetch:
    ```bash
    nix-prefetch-url "https://registry.npmjs.org/@rsvelte/fmt-linux-x64-gnu/-/fmt-linux-x64-gnu-X.Y.Z.tgz"
    nix-prefetch-url "https://registry.npmjs.org/@rsvelte/lint-linux-x64-gnu/-/lint-linux-x64-gnu-X.Y.Z.tgz"
@@ -532,8 +550,7 @@ By hand:
    # …and the arm64 / darwin variants
    nix hash convert --hash-algo sha256 --to sri <base32>
    ```
-3. `nix build .#rsvelte-fmt` / `.#rsvelte-lint` / `.#rsvelte-check` and
-   smoke-test `./result/bin/rsvelte-fmt --version`,
+3. `nix build .#rsvelte` and smoke-test `./result/bin/rsvelte-fmt --version`,
    `./result/bin/rsvelte-lint --version`, and
    `./result/bin/rsvelte-check --help`.
 

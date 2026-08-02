@@ -1,0 +1,36 @@
+{
+  "type": "npm-registry-binary",
+  "tools": [
+    {
+      "pname": "rsvelte-fmt",
+      "npm": "@rsvelte/fmt",
+      "platforms": {
+        "x86_64-linux": "@rsvelte/fmt-linux-x64-gnu",
+        "aarch64-linux": "@rsvelte/fmt-linux-arm64-gnu",
+        "x86_64-darwin": "@rsvelte/fmt-darwin-x64",
+        "aarch64-darwin": "@rsvelte/fmt-darwin-arm64"
+      }
+    },
+    {
+      "pname": "rsvelte-lint",
+      "npm": "@rsvelte/lint",
+      "platforms": {
+        "x86_64-linux": "@rsvelte/lint-linux-x64-gnu",
+        "aarch64-linux": "@rsvelte/lint-linux-arm64-gnu",
+        "x86_64-darwin": "@rsvelte/lint-darwin-x64",
+        "aarch64-darwin": "@rsvelte/lint-darwin-arm64"
+      }
+    },
+    {
+      "pname": "rsvelte-check",
+      "npm": "@rsvelte/svelte-check",
+      "platforms": {
+        "x86_64-linux": "@rsvelte/svelte-check-linux-x64-gnu",
+        "aarch64-linux": "@rsvelte/svelte-check-linux-arm64-gnu",
+        "x86_64-darwin": "@rsvelte/svelte-check-darwin-x64",
+        "aarch64-darwin": "@rsvelte/svelte-check-darwin-arm64"
+      }
+    }
+  ],
+  "description": "Prebuilt rsvelte CLIs from npm platform packages. Each tool in tools[] tracks its own dist-tags.latest and refreshes the matching sources = { … } block under pname = \"…\" in default.nix."
+}
