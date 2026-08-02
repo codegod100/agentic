@@ -847,7 +847,7 @@ print(ver)
 
   local updated_sources
   updated_sources="$(python3 -c '
-import json, subprocess, sys, urllib.parse
+import json, subprocess, sys
 
 upstream = json.load(open(sys.argv[1]))
 version = sys.argv[2]
