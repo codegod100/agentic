@@ -46,6 +46,9 @@
   vulkan-headers,
   vulkan-loader,
   vulkan-memory-allocator,
+  wrapGAppsHook3,
+  gtk3,
+  gsettings-desktop-schemas,
   # Experimental in-tree software passkeys (navigator.credentials + ES256).
   enableSoftwarePasskeys ? true,
 }:
@@ -140,7 +143,12 @@ stdenv.mkDerivation (finalAttrs: {
   ]
   ++ lib.optionals stdenv.hostPlatform.isLinux [
     glslang
+    # Qt may open GTK file dialogs; schemas must land on XDG_DATA_DIRS.
+    wrapGAppsHook3
   ];
+
+  # Let wrapQtAppsHook own wrapping; merge GLib/GTK schema env into it.
+  dontWrapGApps = true;
 
   buildInputs = [
     curlFull
@@ -175,7 +183,13 @@ stdenv.mkDerivation (finalAttrs: {
     vulkan-headers
     vulkan-loader
     vulkan-memory-allocator
+    gtk3
+    gsettings-desktop-schemas
   ];
+
+  preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
+    qtWrapperArgs+=("''${gappsWrapperArgs[@]}")
+  '';
 
   cmakeFlags = [
     (lib.cmakeBool "ENABLE_LTO_FOR_RELEASE" false)
