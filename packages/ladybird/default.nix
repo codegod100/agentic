@@ -196,22 +196,35 @@ stdenv.mkDerivation (finalAttrs: {
   # Haswell (Intel HD 4xxx) only works via Mesa hasvk. With every ICD present,
   # Ladybird's Compositor vkCreateInstance returns VK_ERROR_INCOMPATIBLE_DRIVER
   # (-9) and the process dies instead of falling back. Pin hasvk on those GPUs
-  # unless the user already set VK_ICD_FILENAMES / VK_DRIVER_FILES.
+  # unless the user already set VK_ICD_FILENAMES / VK_DRIVER_FILES, or a
+  # non-Intel GPU is also present (hybrid laptops should keep discrete ICDs).
   qtWrapperArgs = lib.optionals stdenv.hostPlatform.isLinux [
     "--run"
     ''
       if [ -z "''${VK_ICD_FILENAMES:-}" ] && [ -z "''${VK_DRIVER_FILES:-}" ]; then
-        _hasvk="/run/opengl-driver/share/vulkan/icd.d/intel_hasvk_icd.x86_64.json"
-        if [ -r "$_hasvk" ]; then
+        _hasvk=
+        for _cand in /run/opengl-driver/share/vulkan/icd.d/intel_hasvk_icd.*.json; do
+          if [ -r "$_cand" ]; then
+            _hasvk="$_cand"
+            break
+          fi
+        done
+        if [ -n "$_hasvk" ]; then
+          _has_haswell=0
+          _has_non_intel=0
           for _uevent in /sys/class/drm/card*/device/uevent; do
             [ -r "$_uevent" ] || continue
             # Mesa hasvk Gen7.5 (Haswell) PCI IDs.
             if grep -qE 'PCI_ID=8086:(0402|0406|040A|040B|040E|0412|0416|041A|041B|041E|0A02|0A06|0A0A|0A0B|0A0E|0A12|0A16|0A1A|0A1B|0A1E|0A22|0A26|0A2A|0A2B|0A2E|0D02|0D06|0D0A|0D0B|0D0E|0D12|0D16|0D1A|0D1B|0D1E|0D22|0D26|0D2A|0D2B|0D2E)' "$_uevent"; then
-              export VK_ICD_FILENAMES="$_hasvk"
-              export VK_DRIVER_FILES="$_hasvk"
-              break
+              _has_haswell=1
+            elif grep -qE 'PCI_ID=' "$_uevent" && ! grep -qE 'PCI_ID=8086:' "$_uevent"; then
+              _has_non_intel=1
             fi
           done
+          if [ "$_has_haswell" -eq 1 ] && [ "$_has_non_intel" -eq 0 ]; then
+            export VK_ICD_FILENAMES="$_hasvk"
+            export VK_DRIVER_FILES="$_hasvk"
+          fi
         fi
       fi
     ''
