@@ -14,7 +14,7 @@ namespace Web::WebAuthn {
 class PublicKeyCredential;
 
 // Create / get using options.publicKey as a JS object (see PublicKeyCredential.idl).
-WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS::Realm&, JS::Object& public_key_options);
-WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Realm&, JS::Object& public_key_options);
+WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS::Realm&, JS::Object const& public_key_options);
+WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Realm&, JS::Object const& public_key_options);
 
 }

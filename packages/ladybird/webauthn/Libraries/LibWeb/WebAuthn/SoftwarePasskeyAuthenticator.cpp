@@ -167,13 +167,14 @@ static WebIDL::ExceptionOr<ByteBuffer> make_authenticator_data(JS::Realm& realm,
     return auth_data;
 }
 
-static WebIDL::ExceptionOr<ByteString> resolve_rp_id(JS::Realm& realm, JS::Object& public_key_options, URL::Origin const& origin)
+static WebIDL::ExceptionOr<ByteString> resolve_rp_id(JS::Realm& realm, JS::Object const& public_key_options, URL::Origin const& origin)
 {
+    auto& vm = realm.vm();
     auto rp_value = TRY(public_key_options.get("rp"_utf16_fly_string));
     if (rp_value.is_object()) {
         auto id_value = TRY(rp_value.as_object().get("id"_utf16_fly_string));
         if (!id_value.is_undefined()) {
-            auto string = TRY(id_value.to_string(realm.vm()));
+            auto string = TRY(WebIDL::to_byte_string(vm, id_value));
             return to_byte_string(string);
         }
     }
@@ -182,9 +183,8 @@ static WebIDL::ExceptionOr<ByteString> resolve_rp_id(JS::Realm& realm, JS::Objec
     return to_byte_string(origin.host().serialize());
 }
 
-WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS::Realm& realm, JS::Object& public_key_options)
+WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS::Realm& realm, JS::Object const& public_key_options)
 {
-    auto& vm = realm.vm();
     auto origin = HTML::current_settings_object().origin();
 
     auto challenge = TRY(buffer_from_js(realm, TRY(public_key_options.get("challenge"_utf16_fly_string))));
@@ -238,7 +238,7 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS:
     return PublicKeyCredential::create(realm, Utf16String::from_utf8(id_b64), raw_id_ab, response, "platform"_string);
 }
 
-WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Realm& realm, JS::Object& public_key_options)
+WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Realm& realm, JS::Object const& public_key_options)
 {
     auto& vm = realm.vm();
     auto origin = HTML::current_settings_object().origin();
@@ -248,7 +248,7 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
     ByteString rp_id;
     auto rp_id_value = TRY(public_key_options.get("rpId"_utf16_fly_string));
     if (!rp_id_value.is_undefined()) {
-        auto string = TRY(rp_id_value.to_string(vm));
+        auto string = TRY(WebIDL::to_byte_string(vm, rp_id_value));
         rp_id = to_byte_string(string);
     } else if (!origin.is_opaque()) {
         rp_id = to_byte_string(origin.host().serialize());
@@ -278,23 +278,20 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
     auto hash = TRY(sha256(realm, to_sign));
 
     ::Crypto::Curves::SECP256r1 curve;
-    auto private_key = UnsignedBigInteger::import_data(match->private_key_bytes);
+    auto private_key = ::Crypto::UnsignedBigInteger::import_data(match->private_key_bytes);
     auto signature_or_error = curve.sign(hash, private_key);
     if (signature_or_error.is_error())
         return WebIDL::UnknownError::create(realm, "Sign failed"_utf16);
     auto signature = signature_or_error.release_value();
-    auto r_or_error = signature.r_bytes();
-    auto s_or_error = signature.s_bytes();
-    if (r_or_error.is_error() || s_or_error.is_error())
+    auto sig_der_or_error = signature.to_asn();
+    if (sig_der_or_error.is_error())
         return WebIDL::UnknownError::create(realm, "Sign failed"_utf16);
-    ByteBuffer sig_raw;
-    if (sig_raw.try_append(r_or_error.value()).is_error() || sig_raw.try_append(s_or_error.value()).is_error())
-        return WebIDL::UnknownError::create(realm, "OOM"_utf16);
+    auto sig_der = sig_der_or_error.release_value();
 
     auto id_b64 = TRY(lift_string(realm, encode_base64url(match->credential_id, AK::OmitPadding::Yes)));
     auto client_data_ab = JS::ArrayBuffer::create(realm, move(client_data));
     auto auth_data_ab = JS::ArrayBuffer::create(realm, move(auth_data));
-    auto signature_ab = JS::ArrayBuffer::create(realm, move(sig_raw));
+    auto signature_ab = JS::ArrayBuffer::create(realm, move(sig_der));
     auto user_handle_ab = JS::ArrayBuffer::create(realm, MUST(ByteBuffer::copy(match->user_handle)));
     auto raw_id_ab = JS::ArrayBuffer::create(realm, MUST(ByteBuffer::copy(match->credential_id)));
 
