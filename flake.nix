@@ -69,6 +69,16 @@
           mimic = pkgs.callPackage ./packages/mimic { };
           # Minimalist GTK4/libadwaita file manager (mobile-friendly); Linux only.
           portfolio = pkgs.callPackage ./packages/portfolio { };
+          # Chrome m148 Skia (Ladybird needs skia 148; nixpkgs ships 144).
+          skia = pkgs.callPackage ./packages/skia { };
+          # Qt6 web browser (LibWeb); Linux only.
+          ladybird = pkgs.callPackage ./packages/ladybird {
+            inherit (self.packages.${system}) skia;
+          };
+        }
+        // pkgs.lib.optionalAttrs (system == "aarch64-darwin") {
+          # Ladybird on macOS is marked broken upstream; exposed for parity with nixpkgs.
+          ladybird = pkgs.callPackage ./packages/ladybird { };
         }
       );
 
@@ -156,6 +166,16 @@
           portfolio = {
             type = "app";
             program = "${self.packages.${system}.portfolio}/bin/portfolio";
+          };
+          ladybird = {
+            type = "app";
+            program = "${self.packages.${system}.ladybird}/bin/Ladybird";
+          };
+        }
+        // nixpkgs.lib.optionalAttrs (system == "aarch64-darwin") {
+          ladybird = {
+            type = "app";
+            program = "${self.packages.${system}.ladybird}/bin/Ladybird";
           };
         }
       );
