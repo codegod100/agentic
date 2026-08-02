@@ -1,0 +1,65 @@
+# Squash-merge same-repo PRs once the CI workflow succeeds.
+#
+# Native GitHub "Enable auto-merge" only waits for CI when main has required
+# status checks. This repo has no Actions-managed ruleset, so we merge from
+# workflow_run after CI completes instead.
+#
+# Optional (UI): Settings → Rules → require the "CI success" check on main,
+# then GitHub's Enable auto-merge button is also safe to use.
+name: Auto-merge
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+concurrency:
+  group: auto-merge-${{ github.event.workflow_run.head_branch || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  merge:
+    name: Merge on green CI
+    if: >
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.event == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Squash-merge matching same-repo PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+        run: |
+          set -euo pipefail
+
+          pr="$(
+            gh api "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/pulls" \
+              -H "Accept: application/vnd.github.groot-preview+json" \
+              --jq '
+                [
+                  .[]
+                  | select(
+                      .state == "open"
+                      and .draft == false
+                      and .base.ref == "main"
+                      and .head.repo.full_name == .base.repo.full_name
+                    )
+                ]
+                | .[0].number // empty
+              '
+          )"
+
+          if [ -z "${pr}" ]; then
+            echo "No open same-repo PR for ${HEAD_BRANCH} @ ${HEAD_SHA}; skipping"
+            exit 0
+          fi
+
+          echo "Squash-merging PR #${pr} (${HEAD_BRANCH} @ ${HEAD_SHA})"
+          gh pr merge "${pr}" --repo "${GITHUB_REPOSITORY}" --squash
