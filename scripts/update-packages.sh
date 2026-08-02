@@ -91,8 +91,14 @@ set_npm_deps_hash() {
 import re, sys
 path, value = sys.argv[1], sys.argv[2]
 text = open(path).read()
-pat = re.compile(r"(npmDepsHash\s*=\s*)([^;]+)(;)")
-new, n = pat.subn(rf"\g<1>\"{value}\"\g<3>", text, count=1)
+# Line-anchored so comments mentioning npmDepsHash cannot swallow the real attr.
+pat = re.compile(r"^(\s*npmDepsHash\s*=\s*)([^;\n]+)(;)", re.M)
+
+def repl(m):
+    # Format with % to avoid quote/backslash issues inside bash single quotes.
+    return "%s\"%s\"%s" % (m.group(1), value, m.group(3))
+
+new, n = pat.subn(repl, text, count=1)
 if n != 1:
     sys.exit(f"failed to set npmDepsHash in {path} (matches={n})")
 open(path, "w").write(new)
@@ -208,13 +214,15 @@ regenerate_npm_lock() {
 set_fetch_from_github_field() {
   # set_fetch_from_github_field <file> <attr> <value>
   # Replaces attr = "..." inside the first fetchFromGitHub { ... } block.
+  # Allows one level of ${...} inside the block (e.g. rev = "v${finalAttrs.version}").
   local file="$1" attr="$2" value="$3"
   python3 -c '
 import re, sys
 path, attr, value = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(path).read()
+inner = r"(?:[^{}]|\$\{[^}]*\})*?"
 pat = re.compile(
-    rf"(fetchFromGitHub\s*\{{[^}}]*?{re.escape(attr)}\s*=\s*\")([^\"]+)(\")",
+    rf"(fetchFromGitHub\s*\{{{inner}{re.escape(attr)}\s*=\s*\")([^\"]+)(\")",
     re.S,
 )
 new, n = pat.subn(rf"\g<1>{value}\g<3>", text, count=1)
@@ -465,13 +473,15 @@ print(versions[-1])
 set_fetchurl_hash() {
   # set_fetchurl_hash <file> <value>
   # Replaces hash = "..." inside the first fetchurl { ... } block.
+  # Allows one level of ${...} in urls (e.g. v${finalAttrs.version}).
   local file="$1" value="$2"
   python3 -c '
 import re, sys
 path, value = sys.argv[1], sys.argv[2]
 text = open(path).read()
+inner = r"(?:[^{}]|\$\{[^}]*\})*?"
 pat = re.compile(
-    r"(fetchurl\s*\{[^}]*?hash\s*=\s*\")([^\"]+)(\")",
+    rf"(fetchurl\s*\{{{inner}hash\s*=\s*\")([^\"]+)(\")",
     re.S,
 )
 new, n = pat.subn(rf"\g<1>{value}\g<3>", text, count=1)
@@ -609,10 +619,12 @@ keys = [k for k in order if k in sources] + sorted(k for k in sources if k not i
 
 def fmt_entry(sysname):
     e = sources[sysname]
+    # Double-quoted dict keys: this snippet is embedded in bash single quotes.
+    url, h = e["url"], e["hash"]
     return (
         f"    {sysname} = {{\n"
-        f"      url = \"{e['url']}\";\n"
-        f"      hash = \"{e['hash']}\";\n"
+        f"      url = \"{url}\";\n"
+        f"      hash = \"{h}\";\n"
         f"    }};"
     )
 
@@ -775,13 +787,15 @@ open(path, "w").write(new)
 set_fetch_from_gitlab_field() {
   # set_fetch_from_gitlab_field <file> <attr> <value>
   # Replaces attr = "..." inside the first fetchFromGitLab { ... } block.
+  # Allows one level of ${...} inside the block.
   local file="$1" attr="$2" value="$3"
   python3 -c '
 import re, sys
 path, attr, value = sys.argv[1], sys.argv[2], sys.argv[3]
 text = open(path).read()
+inner = r"(?:[^{}]|\$\{[^}]*\})*?"
 pat = re.compile(
-    rf"(fetchFromGitLab\s*\{{[^}}]*?{re.escape(attr)}\s*=\s*\")([^\"]+)(\")",
+    rf"(fetchFromGitLab\s*\{{{inner}{re.escape(attr)}\s*=\s*\")([^\"]+)(\")",
     re.S,
 )
 new, n = pat.subn(rf"\g<1>{value}\g<3>", text, count=1)
@@ -980,30 +994,36 @@ for name in "${PACKAGES[@]}"; do
   [[ -f "$pkg_dir/default.nix" ]] || die "${name}: missing packages/${name}/default.nix"
 
   type="$(read_field "$pkg_dir/upstream.json" type)"
-  status=0
+  # Run each updater in a subshell with set -e so mid-function failures (hash
+  # rewrite, nix build) actually abort. A bare `fn || status=$?` OR-list would
+  # disable errexit inside fn; `set +e; fn; status=$?` alone inherits +e into fn.
+  set +e
   case "$type" in
     npm-github)
-      update_npm_github "$name" || status=$?
+      ( set -euo pipefail; update_npm_github "$name" )
       ;;
     github-unstable)
-      update_github_unstable "$name" || status=$?
+      ( set -euo pipefail; update_github_unstable "$name" )
       ;;
     github-release-binary)
-      update_github_release_binary "$name" || status=$?
+      ( set -euo pipefail; update_github_release_binary "$name" )
       ;;
     url-manifest-binary)
-      update_url_manifest_binary "$name" || status=$?
+      ( set -euo pipefail; update_url_manifest_binary "$name" )
       ;;
     gitlab-tag)
-      update_gitlab_tag "$name" || status=$?
+      ( set -euo pipefail; update_gitlab_tag "$name" )
       ;;
     github-tag)
-      update_github_tag "$name" || status=$?
+      ( set -euo pipefail; update_github_tag "$name" )
       ;;
     *)
+      set -e
       die "${name}: unsupported upstream type '${type}'"
       ;;
   esac
+  status=$?
+  set -e
   if [[ $status -eq 10 ]]; then
     OUTDATED=$((OUTDATED + 1))
   elif [[ $status -ne 0 ]]; then

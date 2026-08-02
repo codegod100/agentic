@@ -14,16 +14,16 @@ let
   # aarch64-linux is the Graviton/Neoverse 512-tvb build upstream ships).
   sources = {
     x86_64-linux = {
-      url = "https://github.com/EpicGames/lore/releases/download/v0.8.5/loreserver-v0.8.5-x86_64-unknown-linux-gnu.tar.gz";
-      hash = "sha256-4U7qykeu+Spl9woRElB/llHlRZ2cajS+KkG6gEPomzA=";
+      url = "https://github.com/EpicGames/lore/releases/download/v0.8.6/loreserver-v0.8.6-x86_64-unknown-linux-gnu.tar.gz";
+      hash = "sha256-8N6ExhdaR28Vd1T1cxa+A0YQW+UCyT+rtlu5COqw4eE=";
     };
     aarch64-linux = {
-      url = "https://github.com/EpicGames/lore/releases/download/v0.8.5/loreserver-v0.8.5-aarch64-unknown-linux-gnu-neoverse-512tvb.tar.gz";
-      hash = "sha256-AqDkfGcnSBNrJGfv5llhaF9c+3o0Ha4BFeBWTjpuyR0=";
+      url = "https://github.com/EpicGames/lore/releases/download/v0.8.6/loreserver-v0.8.6-aarch64-unknown-linux-gnu-neoverse-512tvb.tar.gz";
+      hash = "sha256-Aamr+HZDxGwQ2f19Mbs8kfNxtLZtZsOd+DhgTOTpwVE=";
     };
     aarch64-darwin = {
-      url = "https://github.com/EpicGames/lore/releases/download/v0.8.5/loreserver-v0.8.5-aarch64-apple-darwin.tar.gz";
-      hash = "sha256-ZqUhU7q5+DrkQnxHKDJMp4mUAA+Y7zlL8PLaJ964mlM=";
+      url = "https://github.com/EpicGames/lore/releases/download/v0.8.6/loreserver-v0.8.6-aarch64-apple-darwin.tar.gz";
+      hash = "sha256-SCgfzPcu07pK0ycRdVI1lQaSlfTzC5NuuxXC+lAZnks=";
     };
   };
 
@@ -33,7 +33,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "loreserver";
-  version = "0.8.5";
+  version = "0.8.6";
 
   src = fetchurl {
     inherit (srcAttrs) url hash;
