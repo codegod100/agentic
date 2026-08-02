@@ -784,6 +784,133 @@ open(path, "w").write(new)
   log "${name}: updated successfully to ${latest}"
 }
 
+update_npm_registry_binary() {
+  # Prebuilt multi-platform binaries published to the npm registry.
+  # upstream.json:
+  #   type: npm-registry-binary
+  #   npm: "@scope/name"          # version source (dist-tags.latest)
+  #   platforms: {
+  #     "x86_64-linux": "@scope/name-linux-x64-gnu",
+  #     …
+  #   }
+  #
+  # default.nix is expected to declare:
+  #   version = "…";
+  #   sources = { <nix-system> = { url = "…"; hash = "…"; }; … };
+  #
+  # Tarball URL shape (scoped packages):
+  #   https://registry.npmjs.org/@scope/pkg/-/pkg-<version>.tgz
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+  local npm_pkg
+  npm_pkg="$(read_field "$upstream" npm)"
+  [[ -n "$npm_pkg" ]] || die "${name}: upstream.json missing npm"
+
+  local cur latest
+  cur="$(current_version "$default_nix")"
+  log "${name}: current=${cur}"
+
+  latest="$(python3 -c '
+import json, sys, urllib.request
+pkg = sys.argv[1]
+url = "https://registry.npmjs.org/" + pkg
+with urllib.request.urlopen(url) as r:
+    meta = json.load(r)
+ver = (meta.get("dist-tags") or {}).get("latest") or ""
+if not ver:
+    sys.exit("no dist-tags.latest for " + pkg)
+print(ver)
+' "$npm_pkg")"
+  log "${name}: latest upstream=${latest}"
+
+  if [[ "$latest" == "$cur" ]]; then
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      log "${name}: already up to date"
+      return 0
+    fi
+    # Fall through to refresh hashes/URLs even when the version is unchanged.
+  fi
+
+  if [[ "$latest" != "$cur" ]]; then
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      log "${name}: OUTDATED (${cur} -> ${latest})"
+      return 10
+    fi
+    log "${name}: updating ${cur} -> ${latest}"
+    set_field_string "$default_nix" version "$latest"
+  elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  local updated_sources
+  updated_sources="$(python3 -c '
+import json, subprocess, sys
+
+upstream = json.load(open(sys.argv[1]))
+version = sys.argv[2]
+platforms = upstream.get("platforms") or {}
+if not platforms:
+    sys.exit("platforms map is empty")
+
+def tarball_url(pkg, ver):
+    # @scope/name -> https://registry.npmjs.org/@scope/name/-/name-ver.tgz
+    # name        -> https://registry.npmjs.org/name/-/name-ver.tgz
+    if pkg.startswith("@"):
+        scope, name = pkg.split("/", 1)
+        return f"https://registry.npmjs.org/{scope}/{name}/-/{name}-{ver}.tgz"
+    return f"https://registry.npmjs.org/{pkg}/-/{pkg}-{ver}.tgz"
+
+out = {}
+for nix_system, pkg in platforms.items():
+    url = tarball_url(pkg, version)
+    base32 = subprocess.check_output(
+        ["nix-prefetch-url", url], text=True
+    ).strip().splitlines()[-1]
+    sri = subprocess.check_output(
+        ["nix", "hash", "convert", "--hash-algo", "sha256", "--to", "sri", base32],
+        text=True,
+    ).strip()
+    out[nix_system] = {"url": url, "hash": sri}
+    print(f"  {nix_system}: {sri}", file=sys.stderr)
+print(json.dumps(out))
+' "$upstream" "$latest")"
+
+  python3 -c '
+import json, re, sys
+
+path, sources_json = sys.argv[1], sys.argv[2]
+sources = json.loads(sources_json)
+text = open(path).read()
+
+order = ["x86_64-linux", "aarch64-linux", "x86_64-darwin", "aarch64-darwin"]
+keys = [k for k in order if k in sources] + sorted(k for k in sources if k not in order)
+
+def fmt_entry(sysname):
+    e = sources[sysname]
+    url, h = e["url"], e["hash"]
+    return (
+        f"    {sysname} = {{\n"
+        f"      url = \"{url}\";\n"
+        f"      hash = \"{h}\";\n"
+        f"    }};"
+    )
+
+block = "sources = {\n" + "\n".join(fmt_entry(k) for k in keys) + "\n  };"
+pat = re.compile(r"sources\s*=\s*\{.*?\n  \};", re.S)
+new, n = pat.subn(block, text, count=1)
+if n != 1:
+    sys.exit(f"failed to rewrite sources block in {path} (matches={n})")
+open(path, "w").write(new)
+' "$default_nix" "$updated_sources"
+  log "${name}: sources refreshed"
+
+  verify_build "$name"
+  log "${name}: updated successfully to ${latest}"
+}
+
 set_fetch_from_gitlab_field() {
   # set_fetch_from_gitlab_field <file> <attr> <value>
   # Replaces attr = "..." inside the first fetchFromGitLab { ... } block.
@@ -1010,6 +1137,9 @@ for name in "${PACKAGES[@]}"; do
       ;;
     url-manifest-binary)
       ( set -euo pipefail; update_url_manifest_binary "$name" )
+      ;;
+    npm-registry-binary)
+      ( set -euo pipefail; update_npm_registry_binary "$name" )
       ;;
     gitlab-tag)
       ( set -euo pipefail; update_gitlab_tag "$name" )

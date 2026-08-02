@@ -46,6 +46,10 @@
           gleam-preview = pkgs.callPackage ./packages/gleam-preview { };
           # Official prebuilt EYG CLI (linux + darwin; dynamic glibc on Linux).
           eyg = pkgs.callPackage ./packages/eyg { };
+          # Prebuilt rsvelte CLIs from npm platform packages (linux + darwin).
+          rsvelte-fmt = pkgs.callPackage ./packages/rsvelte-fmt { };
+          rsvelte-lint = pkgs.callPackage ./packages/rsvelte-lint { };
+          rsvelte-check = pkgs.callPackage ./packages/rsvelte-check { };
           # Wrapper around scripts/update-packages.sh (needs a writable checkout).
           update = pkgs.callPackage ./packages/update { };
           default = self.packages.${system}.vit;
@@ -124,6 +128,18 @@
           eyg = {
             type = "app";
             program = "${self.packages.${system}.eyg}/bin/eyg";
+          };
+          rsvelte-fmt = {
+            type = "app";
+            program = "${self.packages.${system}.rsvelte-fmt}/bin/rsvelte-fmt";
+          };
+          rsvelte-lint = {
+            type = "app";
+            program = "${self.packages.${system}.rsvelte-lint}/bin/rsvelte-lint";
+          };
+          rsvelte-check = {
+            type = "app";
+            program = "${self.packages.${system}.rsvelte-check}/bin/rsvelte-check";
           };
           update = {
             type = "app";
