@@ -46,6 +46,8 @@
   vulkan-headers,
   vulkan-loader,
   vulkan-memory-allocator,
+  # Experimental in-tree software passkeys (navigator.credentials + ES256).
+  enableSoftwarePasskeys ? true,
 }:
 
 let
@@ -95,6 +97,9 @@ stdenv.mkDerivation (finalAttrs: {
     substituteInPlace Meta/CMake/lagom_install_options.cmake \
       --replace-fail "\''${CMAKE_INSTALL_BINDIR}" "bin" \
       --replace-fail "\''${CMAKE_INSTALL_LIBDIR}" "lib"
+  ''
+  + lib.optionalString enableSoftwarePasskeys ''
+    bash ${./webauthn/apply-overlay.sh} "$PWD"
   '';
 
   preConfigure = ''
