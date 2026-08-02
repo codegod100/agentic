@@ -42,12 +42,16 @@ nix develop .#ladybird -c bash --norc --noprofile -lc "
   unset CARGO_HOME RUSTUP_HOME
   : \"\${src:?missing src}\" \"\${cmakeFlags:?missing cmakeFlags}\"
   source \"\$stdenv/setup\"
+  # stdenv sets NIX_ENFORCE_PURITY=1, which makes the gcc-wrapper ignore -I paths
+  # outside the Nix store. genericBuild unpacks into a workspace workdir, so
+  # Ladybird's -I\$srcdir/AK... includes would otherwise fail as 'No such file'.
+  export NIX_ENFORCE_PURITY=0
   export out=$(printf '%q' "$out_dir")
   work=$(printf '%q' "$build_dir")
   rm -rf \"\$work\"
   mkdir -p \"\$out\" \"\$work\"
   cd \"\$work\"
-  echo \"NIX_BUILD_CORES=\${NIX_BUILD_CORES:-} rustc=\$(command -v rustc) cwd=\$PWD\" >&2
+  echo \"NIX_BUILD_CORES=\${NIX_BUILD_CORES:-} NIX_ENFORCE_PURITY=\$NIX_ENFORCE_PURITY rustc=\$(command -v rustc) cwd=\$PWD\" >&2
   genericBuild
   echo \"installed:\" >&2
   ls -la \"\$out/bin\" >&2 || ls -la \"\$out\" >&2

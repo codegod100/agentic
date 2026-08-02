@@ -144,6 +144,8 @@ nix develop .#ladybird -c bash --norc --noprofile
 # a default and aborts under nounset when using cargoDeps = fetchCargoVendor.
 unset CARGO_HOME RUSTUP_HOME
 source "$stdenv/setup"
+# gcc-wrapper purity drops -I paths outside /nix/store; needed for workspace builds.
+export NIX_ENFORCE_PURITY=0
 genericBuild   # installs into $out (default: ./outputs/out)
 ```
 
