@@ -91,3 +91,18 @@ jobs:
 
       - name: Build .#${{ matrix.package }}
         run: nix build --no-link --print-build-logs ".#${{ matrix.package }}"
+
+  # Single status gate for branch rules / auto-merge ("CI success").
+  ci-success:
+    name: CI success
+    needs: [discover, build]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require discover + all matrix builds
+        run: |
+          set -euo pipefail
+          echo "discover=${{ needs.discover.result }} build=${{ needs.build.result }}"
+          test "${{ needs.discover.result }}" = "success"
+          test "${{ needs.build.result }}" = "success"
