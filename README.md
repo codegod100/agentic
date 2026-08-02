@@ -133,37 +133,45 @@ nix profile install .#loreserver
 nix profile install .#ladybird
 ```
 
-### Develop shell (`nix develop`)
+### Develop shell (`nix develop`) — incremental Ladybird
 
-Any package attr is developable. For Ladybird, that gives cmake/ninja/Qt/Skia/Rust
-and the package’s `preConfigure` / `cmakeFlags` without a custom `devShells`
-output:
+Any package attr is developable. For Ladybird, use the helper so the cmake/ninja
+tree is kept under `outputs/build` and rebuilds are incremental:
 
 ```bash
-# Enter the Ladybird build environment (use bash --norc so host rustup/cargo
-# under /usr/local/cargo does not shadow Nix’s rustc).
-nix develop .#ladybird -c bash --norc --noprofile
+# First run: unpack + configure + full build + install (slow, once).
+./scripts/ladybird-devshell-build.sh
 
-# Inside the shell (or one-shot via -c): source stdenv and run the full build.
-# Do not enable `set -u`: nixpkgs cargoSetupHook probes $cargoVendorDir without
-# a default and aborts under nounset when using cargoDeps = fetchCargoVendor.
+# Patch sources in the writable tree, then rebuild only what changed:
+#   outputs/build/source/        ← edit / patch here
+#   outputs/build/source/build/  ← ninja object cache (kept by default)
+$EDITOR outputs/build/source/Libraries/LibWeb/...
+./scripts/ladybird-devshell-build.sh              # incremental ninja
+./scripts/ladybird-devshell-build.sh --install    # ninja + cmake --install
+./scripts/ladybird-devshell-build.sh -- LibWeb    # ninja one target
+
+# Interactive shell already cd'd into the build dir:
+./scripts/ladybird-devshell-build.sh --shell
+
+# Full wipe (only when you really want a cold compile):
+./scripts/ladybird-devshell-build.sh --clean
+```
+
+Manual equivalent inside `nix develop .#ladybird` (use `bash --norc` so host
+rustup under `/usr/local/cargo` does not win; do not enable `set -u` — nixpkgs
+`cargoSetupHook` probes `$cargoVendorDir` without a default):
+
+```bash
 unset CARGO_HOME RUSTUP_HOME
 source "$stdenv/setup"
-# gcc-wrapper purity drops -I paths outside /nix/store; needed for workspace builds.
-export NIX_ENFORCE_PURITY=0
-genericBuild   # installs into $out (default: ./outputs/out)
+export NIX_ENFORCE_PURITY=0   # else gcc-wrapper drops -I under the checkout
+cd outputs/build/source/build
+ninja -j"$NIX_BUILD_CORES"
 ```
 
-One-shot helper (same flow; writable `$out` under `./outputs/out` or `OUT_DIR`):
-
-```bash
-./scripts/ladybird-devshell-build.sh
-```
-
-Prefer `nix build .#ladybird` for a normal store build / Cachix hit. The develop
-shell path is for iterating on the derivation toolchain. Cold Ladybird compiles
-are multi-hour on small machines (Skia is a separate long build and is usually
-fetched from Cachix once CI has pushed it).
+Prefer `nix build .#ladybird` for a store/Cachix build. Cold Ladybird compiles
+are multi-hour on small machines; Skia is a separate long build and is usually
+fetched from Cachix once CI has pushed it.
 
 ## Updating packages
 
