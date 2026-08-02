@@ -6,9 +6,9 @@
 #include <AK/Base64.h>
 #include <AK/Random.h>
 #include <AK/StringBuilder.h>
+#include <LibCrypto/BigInt/UnsignedBigInteger.h>
 #include <LibCrypto/Curves/SECPxxxr1.h>
 #include <LibCrypto/Hash/SHA2.h>
-#include <LibJS/Runtime/Array.h>
 #include <LibJS/Runtime/ArrayBuffer.h>
 #include <LibJS/Runtime/ValueInlines.h>
 #include <LibURL/Origin.h>
@@ -37,6 +37,11 @@ static Vector<StoredPasskey>& passkey_store()
     return store;
 }
 
+static ByteString to_byte_string(String const& string)
+{
+    return ByteString { string.bytes() };
+}
+
 static WebIDL::ExceptionOr<ByteBuffer> lift(JS::Realm& realm, ErrorOr<ByteBuffer> result)
 {
     if (result.is_error())
@@ -61,63 +66,48 @@ static WebIDL::ExceptionOr<ByteBuffer> sha256(JS::Realm& realm, ReadonlyBytes da
 
 static WebIDL::ExceptionOr<ByteBuffer> buffer_from_js(JS::Realm& realm, JS::Value value)
 {
-    auto& vm = realm.vm();
     if (!value.is_object() || !WebIDL::is_buffer_source_type(value))
         return WebIDL::SimpleException { WebIDL::SimpleExceptionType::TypeError, "Expected BufferSource"_utf16 };
     auto copy = WebIDL::get_buffer_source_copy(value.as_object());
     if (copy.is_error())
         return WebIDL::UnknownError::create(realm, "Failed to read BufferSource"_utf16);
-    (void)vm;
     return copy.release_value();
 }
 
-static WebIDL::ExceptionOr<ByteString> string_prop(JS::Realm& realm, JS::Object& object, Utf16FlyString const& key)
+static WebIDL::ExceptionOr<void> cbor_try(JS::Realm& realm, ErrorOr<void> result)
 {
-    auto& vm = realm.vm();
-    auto value = TRY(object.get(vm, key));
-    if (value.is_undefined())
-        return WebIDL::SimpleException { WebIDL::SimpleExceptionType::TypeError, "Missing string property"_utf16 };
-    auto string = TRY(value.to_string(vm));
-    return string.to_byte_string();
+    if (result.is_error())
+        return WebIDL::UnknownError::create(realm, "CBOR encode failed"_utf16);
+    return {};
 }
 
 static WebIDL::ExceptionOr<ByteBuffer> encode_cose_ec2_es256(JS::Realm& realm, ReadonlyBytes x, ReadonlyBytes y)
 {
     ByteBuffer out;
-    auto append = [&](ErrorOr<void> r) -> WebIDL::ExceptionOr<void> {
-        if (r.is_error())
-            return WebIDL::UnknownError::create(realm, "CBOR encode failed"_utf16);
-        return {};
-    };
-    TRY(append(CBOR::encode_map_start(out, 5)));
-    TRY(append(CBOR::encode_int(out, 1)));
-    TRY(append(CBOR::encode_int(out, 2)));
-    TRY(append(CBOR::encode_int(out, 3)));
-    TRY(append(CBOR::encode_int(out, -7)));
-    TRY(append(CBOR::encode_int(out, -1)));
-    TRY(append(CBOR::encode_int(out, 1)));
-    TRY(append(CBOR::encode_int(out, -2)));
-    TRY(append(CBOR::encode_bytes(out, x)));
-    TRY(append(CBOR::encode_int(out, -3)));
-    TRY(append(CBOR::encode_bytes(out, y)));
+    TRY(cbor_try(realm, CBOR::encode_map_start(out, 5)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, 1)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, 2)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, 3)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, -7)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, -1)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, 1)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, -2)));
+    TRY(cbor_try(realm, CBOR::encode_bytes(out, x)));
+    TRY(cbor_try(realm, CBOR::encode_int(out, -3)));
+    TRY(cbor_try(realm, CBOR::encode_bytes(out, y)));
     return out;
 }
 
 static WebIDL::ExceptionOr<ByteBuffer> encode_none_attestation_object(JS::Realm& realm, ReadonlyBytes auth_data)
 {
     ByteBuffer out;
-    auto append = [&](ErrorOr<void> r) -> WebIDL::ExceptionOr<void> {
-        if (r.is_error())
-            return WebIDL::UnknownError::create(realm, "CBOR encode failed"_utf16);
-        return {};
-    };
-    TRY(append(CBOR::encode_map_start(out, 3)));
-    TRY(append(CBOR::encode_text(out, "fmt"sv)));
-    TRY(append(CBOR::encode_text(out, "none"sv)));
-    TRY(append(CBOR::encode_text(out, "attStmt"sv)));
-    TRY(append(CBOR::encode_map_start(out, 0)));
-    TRY(append(CBOR::encode_text(out, "authData"sv)));
-    TRY(append(CBOR::encode_bytes(out, auth_data)));
+    TRY(cbor_try(realm, CBOR::encode_map_start(out, 3)));
+    TRY(cbor_try(realm, CBOR::encode_text(out, "fmt"sv)));
+    TRY(cbor_try(realm, CBOR::encode_text(out, "none"sv)));
+    TRY(cbor_try(realm, CBOR::encode_text(out, "attStmt"sv)));
+    TRY(cbor_try(realm, CBOR::encode_map_start(out, 0)));
+    TRY(cbor_try(realm, CBOR::encode_text(out, "authData"sv)));
+    TRY(cbor_try(realm, CBOR::encode_bytes(out, auth_data)));
     return out;
 }
 
@@ -158,7 +148,6 @@ static WebIDL::ExceptionOr<ByteBuffer> make_authenticator_data(JS::Realm& realm,
         return WebIDL::UnknownError::create(realm, "OOM"_utf16);
 
     if (include_attested) {
-        // Stable fake AAGUID spelling "Ladybird\0\0\0\0\0\0\0\0" truncated to 16 bytes.
         u8 aaguid[16] {
             'L', 'a', 'd', 'y', 'b', 'i', 'r', 'd',
             0, 0, 0, 0, 0, 0, 0, 0
@@ -180,18 +169,17 @@ static WebIDL::ExceptionOr<ByteBuffer> make_authenticator_data(JS::Realm& realm,
 
 static WebIDL::ExceptionOr<ByteString> resolve_rp_id(JS::Realm& realm, JS::Object& public_key_options, URL::Origin const& origin)
 {
-    auto& vm = realm.vm();
-    auto rp_value = TRY(public_key_options.get(vm, "rp"_utf16_fly_string));
+    auto rp_value = TRY(public_key_options.get("rp"_utf16_fly_string));
     if (rp_value.is_object()) {
-        auto id_value = TRY(rp_value.as_object().get(vm, "id"_utf16_fly_string));
+        auto id_value = TRY(rp_value.as_object().get("id"_utf16_fly_string));
         if (!id_value.is_undefined()) {
-            auto string = TRY(id_value.to_string(vm));
-            return string.to_byte_string();
+            auto string = TRY(id_value.to_string(realm.vm()));
+            return to_byte_string(string);
         }
     }
     if (origin.is_opaque())
         return WebIDL::NotAllowedError::create(realm, "Passkey RP ID missing"_utf16);
-    return origin.host().serialize().to_byte_string();
+    return to_byte_string(origin.host().serialize());
 }
 
 WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS::Realm& realm, JS::Object& public_key_options)
@@ -199,13 +187,13 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS:
     auto& vm = realm.vm();
     auto origin = HTML::current_settings_object().origin();
 
-    auto challenge = TRY(buffer_from_js(realm, TRY(public_key_options.get(vm, "challenge"_utf16_fly_string))));
+    auto challenge = TRY(buffer_from_js(realm, TRY(public_key_options.get("challenge"_utf16_fly_string))));
     auto rp_id = TRY(resolve_rp_id(realm, public_key_options, origin));
 
-    auto user_value = TRY(public_key_options.get(vm, "user"_utf16_fly_string));
+    auto user_value = TRY(public_key_options.get("user"_utf16_fly_string));
     if (!user_value.is_object())
         return WebIDL::SimpleException { WebIDL::SimpleExceptionType::TypeError, "publicKey.user required"_utf16 };
-    auto user_handle = TRY(buffer_from_js(realm, TRY(user_value.as_object().get(vm, "id"_utf16_fly_string))));
+    auto user_handle = TRY(buffer_from_js(realm, TRY(user_value.as_object().get("id"_utf16_fly_string))));
 
     ::Crypto::Curves::SECP256r1 curve;
     auto private_key_or_error = curve.generate_private_key();
@@ -255,15 +243,15 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
     auto& vm = realm.vm();
     auto origin = HTML::current_settings_object().origin();
 
-    auto challenge = TRY(buffer_from_js(realm, TRY(public_key_options.get(vm, "challenge"_utf16_fly_string))));
+    auto challenge = TRY(buffer_from_js(realm, TRY(public_key_options.get("challenge"_utf16_fly_string))));
 
     ByteString rp_id;
-    auto rp_id_value = TRY(public_key_options.get(vm, "rpId"_utf16_fly_string));
+    auto rp_id_value = TRY(public_key_options.get("rpId"_utf16_fly_string));
     if (!rp_id_value.is_undefined()) {
         auto string = TRY(rp_id_value.to_string(vm));
-        rp_id = string.to_byte_string();
+        rp_id = to_byte_string(string);
     } else if (!origin.is_opaque()) {
-        rp_id = origin.host().serialize().to_byte_string();
+        rp_id = to_byte_string(origin.host().serialize());
     } else {
         return WebIDL::NotAllowedError::create(realm, "Passkey RP ID missing"_utf16);
     }

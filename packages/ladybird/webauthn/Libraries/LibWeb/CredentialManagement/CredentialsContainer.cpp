@@ -31,8 +31,8 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::get(Bindings::CredentialRequestOp
 {
     auto& realm = *vm().current_realm();
 
-    if (!options.public_key.is_undefined() && options.public_key.is_object()) {
-        auto result = WebAuthn::software_get_credential(realm, options.public_key.as_object());
+    if (options.public_key.has_value() && options.public_key->is_object()) {
+        auto result = WebAuthn::software_get_credential(realm, options.public_key->as_object());
         if (result.is_error())
             return WebIDL::create_rejected_promise_from_exception(realm, result.release_error());
         return WebIDL::create_resolved_promise(realm, JS::Value(result.release_value()));
@@ -53,8 +53,8 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::create(Bindings::CredentialCreati
 {
     auto& realm = *vm().current_realm();
 
-    if (!options.public_key.is_undefined() && options.public_key.is_object()) {
-        auto result = WebAuthn::software_create_credential(realm, options.public_key.as_object());
+    if (options.public_key.has_value() && options.public_key->is_object()) {
+        auto result = WebAuthn::software_create_credential(realm, options.public_key->as_object());
         if (result.is_error())
             return WebIDL::create_rejected_promise_from_exception(realm, result.release_error());
         return WebIDL::create_resolved_promise(realm, JS::Value(result.release_value()));
