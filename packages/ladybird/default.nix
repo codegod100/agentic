@@ -49,6 +49,7 @@
   wrapGAppsHook3,
   gtk3,
   gsettings-desktop-schemas,
+  libsecret,
   # Experimental in-tree software passkeys (navigator.credentials + ES256).
   enableSoftwarePasskeys ? true,
 }:
@@ -102,9 +103,10 @@ stdenv.mkDerivation (finalAttrs: {
       --replace-fail "\''${CMAKE_INSTALL_LIBDIR}" "lib"
   ''
   + lib.optionalString enableSoftwarePasskeys ''
-    # Reference the whole overlay dir so Libraries/* are in the store path
-    # (a single-file ${./webauthn/apply-overlay.sh} would leave dirname=/nix/store).
+    # Reference whole overlay dirs so Libraries/* are in the store path
+    # (a single-file ${./…/apply-overlay.sh} would leave dirname=/nix/store).
     bash ${./webauthn}/apply-overlay.sh "$PWD"
+    bash ${./passwordmgr}/apply-overlay.sh "$PWD"
   '';
 
   preConfigure = ''
@@ -185,6 +187,7 @@ stdenv.mkDerivation (finalAttrs: {
     vulkan-memory-allocator
     gtk3
     gsettings-desktop-schemas
+    libsecret
   ];
 
   preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
