@@ -99,7 +99,9 @@ stdenv.mkDerivation (finalAttrs: {
       --replace-fail "\''${CMAKE_INSTALL_LIBDIR}" "lib"
   ''
   + lib.optionalString enableSoftwarePasskeys ''
-    bash ${./webauthn/apply-overlay.sh} "$PWD"
+    # Reference the whole overlay dir so Libraries/* are in the store path
+    # (a single-file ${./webauthn/apply-overlay.sh} would leave dirname=/nix/store).
+    bash ${./webauthn}/apply-overlay.sh "$PWD"
   '';
 
   preConfigure = ''
