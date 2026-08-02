@@ -23,6 +23,7 @@
   perl,
   python3,
   qt6Packages,
+  makeShellWrapper,
   woff2,
   cargo,
   cpptrace,
@@ -126,7 +127,8 @@ stdenv.mkDerivation (finalAttrs: {
     python3
     rustPlatform.cargoSetupHook
     rustc
-    qt6Packages.wrapQtAppsHook
+    # qtWrapperArgs uses --run (Haswell hasvk); binary wrappers reject that.
+    (qt6Packages.wrapQtAppsHook.override { makeBinaryWrapper = makeShellWrapper; })
     libtommath
   ]
   ++ lib.optionals stdenv.hostPlatform.isLinux [
@@ -192,6 +194,10 @@ stdenv.mkDerivation (finalAttrs: {
   '';
 
   dontWrapQtApps = stdenv.hostPlatform.isDarwin;
+
+  # Keep qtWrapperArgs as a real bash array so the --run script is not
+  # word-split (required for multiline --run with wrapQtAppsHook).
+  __structuredAttrs = true;
 
   # Haswell (Intel HD 4xxx) only works via Mesa hasvk. With every ICD present,
   # Ladybird's Compositor vkCreateInstance returns VK_ERROR_INCOMPATIBLE_DRIVER
