@@ -10,20 +10,20 @@ let
   # Asset names: whetuu-v{version}-{target}.tar.gz — each archive is a single `whetuu`.
   sources = {
     x86_64-linux = {
-      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.5/whetuu-v0.1.5-x86_64-linux-musl.tar.gz";
-      hash = "sha256-YJ8IdY7fe1e9/H1TLer/3Dj5pl4cZUdBwR+oPuHW/4Q=";
+      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.10/whetuu-v0.1.10-x86_64-linux-musl.tar.gz";
+      hash = "sha256-AjffM5kwAqni4UF57hm5krlv1LRjnex1KneNfO8QrUo=";
     };
     aarch64-linux = {
-      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.5/whetuu-v0.1.5-aarch64-linux-musl.tar.gz";
-      hash = "sha256-H3EIRQH8GGuzELr5GAPt0tuvZVSaNn85fohu7Vkbq8o=";
+      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.10/whetuu-v0.1.10-aarch64-linux-musl.tar.gz";
+      hash = "sha256-zZKD0Xn03bpxsQ7W2twKTuolOxxQs8+9ijIVYnfdybA=";
     };
     x86_64-darwin = {
-      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.5/whetuu-v0.1.5-x86_64-macos.tar.gz";
-      hash = "sha256-8mkq3G4s7HFA6gC2pDUZ1aZBA3uAyqoK6zBgZG5nVAk=";
+      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.10/whetuu-v0.1.10-x86_64-macos.tar.gz";
+      hash = "sha256-YKjtOrq7pTNfVQoondgnn1fzhMT4iXCZrAigqYEMvsM=";
     };
     aarch64-darwin = {
-      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.5/whetuu-v0.1.5-aarch64-macos.tar.gz";
-      hash = "sha256-WTl+7W0zww7aMZTYfBxlSo/rofJy9EYrlhs9KrqlGyo=";
+      url = "https://github.com/yamafaktory/whetuu/releases/download/v0.1.10/whetuu-v0.1.10-aarch64-macos.tar.gz";
+      hash = "sha256-LesgX9KH09nRsu/uvPrQav/t4buXoEEsQY6DZncpH6c=";
     };
   };
 
@@ -33,7 +33,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "whetuu";
-  version = "0.1.9";
+  version = "0.1.10";
 
   src = fetchurl {
     inherit (srcAttrs) url hash;

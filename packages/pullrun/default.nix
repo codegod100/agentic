@@ -10,20 +10,20 @@ let
   # Each archive has pullrun-{os}-{arch} + pullrun-runtime-{os}-{arch} (static).
   sources = {
     x86_64-linux = {
-      url = "https://github.com/pullrun/pullrun/releases/download/v0.6.7/pullrun-0.6.7-linux-amd64.tar.gz";
-      hash = "sha256-aFIa59shNN+Ptt8vd39fRvY1Gjh5WghZLrAc7lmRtkw=";
+      url = "https://github.com/pullrun/pullrun/releases/download/v0.7.9/pullrun-0.7.9-linux-amd64.tar.gz";
+      hash = "sha256-NE3Ch5XH7VsLgKiCJnHqwzV9c3HurXfa83eqBCJN1l8=";
     };
     aarch64-linux = {
-      url = "https://github.com/pullrun/pullrun/releases/download/v0.6.7/pullrun-0.6.7-linux-arm64.tar.gz";
-      hash = "sha256-Ct0fm26gMwqx9tw96X8TW5xnUZpwC9HXgzn5tDr7cy4=";
+      url = "https://github.com/pullrun/pullrun/releases/download/v0.7.9/pullrun-0.7.9-linux-arm64.tar.gz";
+      hash = "sha256-jFy57LRxabOWCQnJTyABTb3IzHl0oHDD+r6gp5ox2Z8=";
     };
     x86_64-darwin = {
-      url = "https://github.com/pullrun/pullrun/releases/download/v0.6.7/pullrun-0.6.7-darwin-amd64.tar.gz";
-      hash = "sha256-f9xQJcH5CpcwbHSOZg7K7fWdRjipUkiYMCywbGQ025c=";
+      url = "https://github.com/pullrun/pullrun/releases/download/v0.7.9/pullrun-0.7.9-darwin-amd64.tar.gz";
+      hash = "sha256-tqWty9CjMTRd2v3veVz+SG+LUpnP8qgalF2f20l2AL0=";
     };
     aarch64-darwin = {
-      url = "https://github.com/pullrun/pullrun/releases/download/v0.6.7/pullrun-0.6.7-darwin-arm64.tar.gz";
-      hash = "sha256-tj1K0VKI2UnWUT8lqTiXC9MD4qM8R4iYy/AoNBLTr/8=";
+      url = "https://github.com/pullrun/pullrun/releases/download/v0.7.9/pullrun-0.7.9-darwin-arm64.tar.gz";
+      hash = "sha256-/hRQmxJ4/mzX1KVDOeHK7/xDVLcT36FD0uyMnSPsvtw=";
     };
   };
 
@@ -33,7 +33,7 @@ let
 in
 stdenv.mkDerivation (finalAttrs: {
   pname = "pullrun";
-  version = "0.7.6";
+  version = "0.7.9";
 
   src = fetchurl {
     inherit (srcAttrs) url hash;
