@@ -7,6 +7,7 @@
 
 #include <LibJS/Runtime/ValueInlines.h>
 #include <LibWeb/CredentialManagement/CredentialsContainer.h>
+#include <LibWeb/WebAuthn/PublicKeyCredential.h>
 #include <LibWeb/WebAuthn/SoftwarePasskeyAuthenticator.h>
 #include <LibWeb/WebIDL/Promise.h>
 
