@@ -55,8 +55,22 @@ jobs:
           fi
           echo "Building ${#attrs[@]} packages for ${system}:"
           printf '  - %s\n' "${attrs[@]}"
-          targets=()
+
+          # Build one attr at a time so a single failure still lets successful
+          # packages finish (and get pushed to Cachix on main via the daemon).
+          failed=()
           for attr in "${attrs[@]}"; do
-            targets+=(".#${attr}")
+            echo "::group::nix build .#${attr}"
+            if nix build --no-link --print-build-logs ".#${attr}"; then
+              echo "ok: ${attr}"
+            else
+              echo "::error::failed to build .#${attr}"
+              failed+=("${attr}")
+            fi
+            echo "::endgroup::"
           done
-          nix build --no-link --print-build-logs "${targets[@]}"
+
+          if [ "${#failed[@]}" -gt 0 ]; then
+            echo "Failed packages: ${failed[*]}" >&2
+            exit 1
+          fi
