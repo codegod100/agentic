@@ -15,6 +15,7 @@ packages/
 scripts/
   update-packages.sh   # version bump + hash/lock refresh
 .github/workflows/
+  ci.yml               # build on main / PRs; push to Cachix on merge
   update-packages.yml  # weekly cron + manual dispatch
 ```
 
@@ -41,6 +42,22 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `eyg` | [CrowdHailer/eyg-lang](https://github.com/CrowdHailer/eyg-lang) | `curl -fsSL https://eyg.run/install \| bash` |
 | `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
 | `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
+
+## Binary cache (Cachix)
+
+CI builds every package on merges to `main` and pushes results to the public
+[`codegod100`](https://app.cachix.org/cache/codegod100) Cachix cache. The flake
+advertises the cache via `nixConfig`; accept the substituter when prompted, or
+configure it once:
+
+```bash
+# nix.conf / NixOS: trusted-substituters + trusted-public-keys
+extra-substituters = https://codegod100.cachix.org
+extra-trusted-public-keys = codegod100.cachix.org-1:LZFL5VrR644WUjleS3bLbVeOdzlXqzKznQWvD5MVthA=
+```
+
+CI needs a write token in the repo secret `CACHIX_AUTH_TOKEN` (Cachix → cache →
+Auth Tokens) so pushes from GitHub Actions succeed.
 
 ## Usage
 
