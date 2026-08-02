@@ -43,6 +43,8 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `rsvelte` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/fmt`, `@rsvelte/lint`, `@rsvelte/svelte-check`) | `npm install -g @rsvelte/fmt @rsvelte/lint @rsvelte/svelte-check` |
 | `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
 | `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
+| `skia` | [google/skia](https://skia.googlesource.com/skia) (Chrome m148 pin) | build from source (Ladybird dep; nixpkgs Skia is older) |
+| `ladybird` | [LadybirdBrowser/ladybird](https://github.com/LadybirdBrowser/ladybird) | [build docs](https://github.com/LadybirdBrowser/ladybird/blob/master/Documentation/BuildInstructionsLinux.md) |
 
 ## Binary cache (Cachix)
 
@@ -80,6 +82,8 @@ nix build .#eyg           # linux + darwin (all four systems)
 nix build .#rsvelte       # linux + darwin; bins: rsvelte-fmt, rsvelte-lint, rsvelte-check
 nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#loreserver    # same platforms as lore
+nix build .#skia          # linux only (Chrome m148; Ladybird dep)
+nix build .#ladybird      # linux (+ aarch64-darwin attr, marked broken)
 
 # run without installing
 nix run .#vit -- --help
@@ -102,6 +106,7 @@ nix run .#rsvelte-lint -- --version
 nix run .#rsvelte-check -- --help   # apps from the rsvelte package
 nix run .#lore -- --version
 nix run .#loreserver -- --version
+nix run .#ladybird        # linux; opens the Ladybird browser
 
 # install into your profile
 nix profile install .#vit
@@ -120,7 +125,38 @@ nix profile install .#eyg
 nix profile install .#rsvelte       # installs fmt + lint + check
 nix profile install .#lore
 nix profile install .#loreserver
+nix profile install .#ladybird
 ```
+
+### Develop shell (`nix develop`)
+
+Any package attr is developable. For Ladybird, that gives cmake/ninja/Qt/Skia/Rust
+and the package’s `preConfigure` / `cmakeFlags` without a custom `devShells`
+output:
+
+```bash
+# Enter the Ladybird build environment (use bash --norc so host rustup/cargo
+# under /usr/local/cargo does not shadow Nix’s rustc).
+nix develop .#ladybird -c bash --norc --noprofile
+
+# Inside the shell (or one-shot via -c): source stdenv and run the full build.
+# Do not enable `set -u`: nixpkgs cargoSetupHook probes $cargoVendorDir without
+# a default and aborts under nounset when using cargoDeps = fetchCargoVendor.
+unset CARGO_HOME RUSTUP_HOME
+source "$stdenv/setup"
+genericBuild   # installs into $out (default: ./outputs/out)
+```
+
+One-shot helper (same flow; writable `$out` under `./outputs/out` or `OUT_DIR`):
+
+```bash
+./scripts/ladybird-devshell-build.sh
+```
+
+Prefer `nix build .#ladybird` for a normal store build / Cachix hit. The develop
+shell path is for iterating on the derivation toolchain. Cold Ladybird compiles
+are multi-hour on small machines (Skia is a separate long build and is usually
+fetched from Cachix once CI has pushed it).
 
 ## Updating packages
 
