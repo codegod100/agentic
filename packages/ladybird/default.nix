@@ -104,7 +104,7 @@ stdenv.mkDerivation (finalAttrs: {
   ''
   + lib.optionalString enableSoftwarePasskeys ''
     # Reference whole overlay dirs so Libraries/* are in the store path
-    # (a single-file ${./…/apply-overlay.sh} would leave dirname=/nix/store).
+    # (a single-file apply-overlay.sh path would leave dirname=/nix/store).
     bash ${./webauthn}/apply-overlay.sh "$PWD"
     bash ${./passwordmgr}/apply-overlay.sh "$PWD"
   '';
