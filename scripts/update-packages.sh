@@ -784,35 +784,9 @@ open(path, "w").write(new)
   log "${name}: updated successfully to ${latest}"
 }
 
-update_npm_registry_binary() {
-  # Prebuilt multi-platform binaries published to the npm registry.
-  # upstream.json:
-  #   type: npm-registry-binary
-  #   npm: "@scope/name"          # version source (dist-tags.latest)
-  #   platforms: {
-  #     "x86_64-linux": "@scope/name-linux-x64-gnu",
-  #     …
-  #   }
-  #
-  # default.nix is expected to declare:
-  #   version = "…";
-  #   sources = { <nix-system> = { url = "…"; hash = "…"; }; … };
-  #
-  # Tarball URL shape (scoped packages):
-  #   https://registry.npmjs.org/@scope/pkg/-/pkg-<version>.tgz
-  local name="$1"
-  local pkg_dir="$ROOT/packages/${name}"
-  local default_nix="$pkg_dir/default.nix"
-  local upstream="$pkg_dir/upstream.json"
-  local npm_pkg
-  npm_pkg="$(read_field "$upstream" npm)"
-  [[ -n "$npm_pkg" ]] || die "${name}: upstream.json missing npm"
-
-  local cur latest
-  cur="$(current_version "$default_nix")"
-  log "${name}: current=${cur}"
-
-  latest="$(python3 -c '
+npm_latest_version() {
+  # npm_latest_version <@scope/pkg|pkg> → dist-tags.latest
+  python3 -c '
 import json, sys, urllib.request
 pkg = sys.argv[1]
 url = "https://registry.npmjs.org/" + pkg
@@ -822,36 +796,17 @@ ver = (meta.get("dist-tags") or {}).get("latest") or ""
 if not ver:
     sys.exit("no dist-tags.latest for " + pkg)
 print(ver)
-' "$npm_pkg")"
-  log "${name}: latest upstream=${latest}"
+' "$1"
+}
 
-  if [[ "$latest" == "$cur" ]]; then
-    if [[ "$CHECK_ONLY" -eq 1 ]]; then
-      log "${name}: already up to date"
-      return 0
-    fi
-    # Fall through to refresh hashes/URLs even when the version is unchanged.
-  fi
-
-  if [[ "$latest" != "$cur" ]]; then
-    if [[ "$CHECK_ONLY" -eq 1 ]]; then
-      log "${name}: OUTDATED (${cur} -> ${latest})"
-      return 10
-    fi
-    log "${name}: updating ${cur} -> ${latest}"
-    set_field_string "$default_nix" version "$latest"
-  elif [[ "$CHECK_ONLY" -eq 1 ]]; then
-    log "${name}: already up to date"
-    return 0
-  fi
-
-  local updated_sources
-  updated_sources="$(python3 -c '
+prefetch_npm_platform_sources() {
+  # prefetch_npm_platform_sources <platforms-json> <version> → sources JSON on stdout
+  # platforms-json: {"x86_64-linux":"@scope/pkg-linux-x64-gnu", ...}
+  python3 -c '
 import json, subprocess, sys
 
-upstream = json.load(open(sys.argv[1]))
+platforms = json.loads(sys.argv[1])
 version = sys.argv[2]
-platforms = upstream.get("platforms") or {}
 if not platforms:
     sys.exit("platforms map is empty")
 
@@ -876,39 +831,267 @@ for nix_system, pkg in platforms.items():
     out[nix_system] = {"url": url, "hash": sri}
     print(f"  {nix_system}: {sri}", file=sys.stderr)
 print(json.dumps(out))
-' "$upstream" "$latest")"
+' "$1" "$2"
+}
 
+rewrite_npm_sources_block() {
+  # rewrite_npm_sources_block <default.nix> <sources-json> [pname]
+  # Replaces a sources = { … }; block (brace-matched). If pname is set, uses the
+  # first sources block after pname = "<pname>";.
   python3 -c '
 import json, re, sys
 
 path, sources_json = sys.argv[1], sys.argv[2]
+pname = sys.argv[3] if len(sys.argv) > 3 else ""
 sources = json.loads(sources_json)
 text = open(path).read()
 
 order = ["x86_64-linux", "aarch64-linux", "x86_64-darwin", "aarch64-darwin"]
 keys = [k for k in order if k in sources] + sorted(k for k in sources if k not in order)
 
+def find_sources_span(s, start=0):
+    m = re.search(r"sources\s*=\s*\{", s[start:])
+    if not m:
+        return None
+    abs_start = start + m.start()
+    brace_open = start + m.end() - 1  # index of "{"
+    depth = 0
+    i = brace_open
+    while i < len(s):
+        c = s[i]
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                # include trailing ";"
+                end = i + 1
+                if end < len(s) and s[end] == ";":
+                    end += 1
+                return abs_start, end
+        i += 1
+    return None
+
+search_from = 0
+if pname:
+    pm = re.search(rf"pname\s*=\s*\"{re.escape(pname)}\"\s*;", text)
+    if not pm:
+        sys.exit(f"pname = \"{pname}\" not found in {path}")
+    search_from = pm.end()
+
+span = find_sources_span(text, search_from)
+if not span:
+    label = f" after pname = \"{pname}\"" if pname else ""
+    sys.exit(f"sources block{label} not found in {path}")
+abs_start, abs_end = span
+
+# Infer indentation from the line containing "sources ="
+line_start = text.rfind("\n", 0, abs_start) + 1
+indent = abs_start - line_start
+pad = " " * indent
+key_pad = " " * (indent + 2)
+inner_pad = " " * (indent + 4)
+
 def fmt_entry(sysname):
     e = sources[sysname]
     url, h = e["url"], e["hash"]
     return (
-        f"    {sysname} = {{\n"
-        f"      url = \"{url}\";\n"
-        f"      hash = \"{h}\";\n"
-        f"    }};"
+        f"{key_pad}{sysname} = {{\n"
+        f"{inner_pad}url = \"{url}\";\n"
+        f"{inner_pad}hash = \"{h}\";\n"
+        f"{key_pad}}};"
     )
 
-block = "sources = {\n" + "\n".join(fmt_entry(k) for k in keys) + "\n  };"
-pat = re.compile(r"sources\s*=\s*\{.*?\n  \};", re.S)
-new, n = pat.subn(block, text, count=1)
+block = "sources = {\n" + "\n".join(fmt_entry(k) for k in keys) + f"\n{pad}}};"
+# Keep the leading indentation that preceded "sources" on that line.
+prefix = text[line_start:abs_start]
+# abs_start points at "sources"; rebuild from line_start for clean indent.
+text = text[:line_start] + prefix + block + text[abs_end:]
+open(path, "w").write(text)
+' "$1" "$2" "${3-}"
+}
+
+current_version_for_pname() {
+  # current_version_for_pname <default.nix> <pname>
+  # Version attr immediately following pname = "<pname>";
+  python3 -c '
+import re, sys
+text = open(sys.argv[1]).read()
+pname = sys.argv[2]
+m = re.search(
+    rf"pname\s*=\s*\"{re.escape(pname)}\"\s*;\s*version\s*=\s*\"([^\"]+)\"",
+    text,
+    re.S,
+)
+if not m:
+    sys.exit(f"version after pname = \"{pname}\" not found in " + sys.argv[1])
+print(m.group(1))
+' "$1" "$2"
+}
+
+set_version_for_pname() {
+  # set_version_for_pname <default.nix> <pname> <version>
+  python3 -c '
+import re, sys
+path, pname, version = sys.argv[1], sys.argv[2], sys.argv[3]
+text = open(path).read()
+pat = re.compile(
+    rf"(pname\s*=\s*\"{re.escape(pname)}\"\s*;\s*version\s*=\s*\")([^\"]*)(\")",
+    re.S,
+)
+new, n = pat.subn(rf"\g<1>{version}\g<3>", text, count=1)
 if n != 1:
-    sys.exit(f"failed to rewrite sources block in {path} (matches={n})")
+    sys.exit(f"failed to set version for pname = \"{pname}\" in {path} (matches={n})")
 open(path, "w").write(new)
-' "$default_nix" "$updated_sources"
+' "$1" "$2" "$3"
+}
+
+update_npm_registry_binary() {
+  # Prebuilt multi-platform binaries published to the npm registry.
+  # upstream.json:
+  #   type: npm-registry-binary
+  #
+  # Single-tool form:
+  #   npm: "@scope/name"          # version source (dist-tags.latest)
+  #   platforms: {
+  #     "x86_64-linux": "@scope/name-linux-x64-gnu",
+  #     …
+  #   }
+  #   default.nix: version = "…"; sources = { … };
+  #
+  # Multi-tool form (one package, several independently versioned CLIs):
+  #   tools: [
+  #     { pname, npm, platforms },
+  #     …
+  #   ]
+  #   default.nix: repeated `pname = "…"; version = "…"; … sources = { … };`
+  #
+  # Tarball URL shape (scoped packages):
+  #   https://registry.npmjs.org/@scope/pkg/-/pkg-<version>.tgz
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+
+  local tools_json
+  tools_json="$(python3 -c '
+import json, sys
+u = json.load(open(sys.argv[1]))
+tools = u.get("tools")
+if tools is None:
+    print("")
+elif not isinstance(tools, list) or not tools:
+    sys.exit("tools must be a non-empty list")
+else:
+    print(json.dumps(tools))
+' "$upstream")"
+
+  if [[ -n "$tools_json" ]]; then
+    update_npm_registry_binary_tools "$name" "$tools_json"
+    return
+  fi
+
+  local npm_pkg
+  npm_pkg="$(read_field "$upstream" npm)"
+  [[ -n "$npm_pkg" ]] || die "${name}: upstream.json missing npm (or tools)"
+
+  local cur latest
+  cur="$(current_version "$default_nix")"
+  log "${name}: current=${cur}"
+
+  latest="$(npm_latest_version "$npm_pkg")"
+  log "${name}: latest upstream=${latest}"
+
+  if [[ "$latest" == "$cur" ]]; then
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      log "${name}: already up to date"
+      return 0
+    fi
+    # Fall through to refresh hashes/URLs even when the version is unchanged.
+  fi
+
+  if [[ "$latest" != "$cur" ]]; then
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      log "${name}: OUTDATED (${cur} -> ${latest})"
+      return 10
+    fi
+    log "${name}: updating ${cur} -> ${latest}"
+    set_field_string "$default_nix" version "$latest"
+  elif [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  local platforms_json updated_sources
+  platforms_json="$(python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1])).get("platforms") or {}))' "$upstream")"
+  updated_sources="$(prefetch_npm_platform_sources "$platforms_json" "$latest")"
+  rewrite_npm_sources_block "$default_nix" "$updated_sources"
   log "${name}: sources refreshed"
 
   verify_build "$name"
   log "${name}: updated successfully to ${latest}"
+}
+
+update_npm_registry_binary_tools() {
+  # Multi-tool npm-registry-binary: update each tools[] entry independently.
+  local name="$1"
+  local tools_json="$2"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+
+  local outdated=0
+  local tool_count
+  tool_count="$(python3 -c 'import json,sys; print(len(json.loads(sys.argv[1])))' "$tools_json")"
+  log "${name}: multi-tool npm-registry-binary (${tool_count} tools)"
+
+  local i pname npm_pkg platforms_json cur latest updated_sources
+  for ((i = 0; i < tool_count; i++)); do
+    pname="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[int(sys.argv[2])]["pname"])' "$tools_json" "$i")"
+    npm_pkg="$(python3 -c 'import json,sys; print(json.loads(sys.argv[1])[int(sys.argv[2])]["npm"])' "$tools_json" "$i")"
+    platforms_json="$(python3 -c 'import json,sys; t=json.loads(sys.argv[1])[int(sys.argv[2])]; p=t.get("platforms") or {};
+if not t.get("pname") or not t.get("npm") or not p: raise SystemExit("each tools[] entry needs pname, npm, and platforms")
+print(json.dumps(p))' "$tools_json" "$i")"
+
+    cur="$(current_version_for_pname "$default_nix" "$pname")"
+    log "${name}/${pname}: current=${cur}"
+    latest="$(npm_latest_version "$npm_pkg")"
+    log "${name}/${pname}: latest upstream=${latest}"
+
+    if [[ "$latest" == "$cur" ]]; then
+      if [[ "$CHECK_ONLY" -eq 1 ]]; then
+        log "${name}/${pname}: already up to date"
+        continue
+      fi
+      # Fall through to refresh hashes/URLs even when the version is unchanged.
+    else
+      if [[ "$CHECK_ONLY" -eq 1 ]]; then
+        log "${name}/${pname}: OUTDATED (${cur} -> ${latest})"
+        outdated=1
+        continue
+      fi
+      log "${name}/${pname}: updating ${cur} -> ${latest}"
+      set_version_for_pname "$default_nix" "$pname" "$latest"
+    fi
+
+    if [[ "$CHECK_ONLY" -eq 1 ]]; then
+      continue
+    fi
+
+    updated_sources="$(prefetch_npm_platform_sources "$platforms_json" "$latest")"
+    rewrite_npm_sources_block "$default_nix" "$updated_sources" "$pname"
+    log "${name}/${pname}: sources refreshed"
+  done
+
+  if [[ "$CHECK_ONLY" -eq 1 ]]; then
+    if [[ "$outdated" -eq 1 ]]; then
+      return 10
+    fi
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  verify_build "$name"
+  log "${name}: updated successfully"
 }
 
 set_fetch_from_gitlab_field() {
