@@ -1,0 +1,6 @@
+{
+  "type": "github-unstable",
+  "github": "google/skia",
+  "branch": "chrome/m148",
+  "description": "Skia Chrome m148 branch (Ladybird currently needs skia 148). Tracks chrome/m148 tip on the GitHub mirror."
+}
