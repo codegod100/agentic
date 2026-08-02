@@ -1,6 +1,13 @@
 {
   description = "Nix packages for third-party projects that don't ship their own flakes";
 
+  nixConfig = {
+    extra-substituters = [ "https://codegod100.cachix.org" ];
+    extra-trusted-public-keys = [
+      "codegod100.cachix.org-1:LZFL5VrR644WUjleS3bLbVeOdzlXqzKznQWvD5MVthA="
+    ];
+  };
+
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
   };

@@ -179,6 +179,12 @@ stdenv.mkDerivation (finalAttrs: {
   ];
 
   env.NIX_LDFLAGS = "-lGL -lfontconfig";
+  # Vendored wuffs-v0.3.c trips newer GCC diagnostics that Ladybird enables as
+  # -Werror (suggest-override, calloc-transposed-args). Keep them non-fatal.
+  env.NIX_CFLAGS_COMPILE = toString [
+    "-Wno-error=suggest-override"
+    "-Wno-error=calloc-transposed-args"
+  ];
 
   postInstall = lib.optionalString stdenv.hostPlatform.isDarwin ''
     mkdir -p $out/Applications $out/bin
