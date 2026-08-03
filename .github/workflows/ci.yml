@@ -54,16 +54,60 @@ jobs:
     needs: discover
     runs-on: ubuntu-latest
     # Ladybird / Skia are long compiles; keep headroom for cold caches.
-    # With NIXBUILD_TOKEN set, compiles offload to nixbuild.net (much faster).
+    # With NIXBUILD_TOKEN (GitHub secret or OpenBao ai-api-keys), compiles
+    # offload to nixbuild.net (much faster).
     timeout-minutes: 360
-    env:
-      # Job-level env so steps can branch on token presence (secrets.* not allowed in if:).
-      NIXBUILD_TOKEN: ${{ secrets.NIXBUILD_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
         package: ${{ fromJSON(needs.discover.outputs.packages) }}
     steps:
+      - name: Load tokens (GitHub secret or OpenBao ai-api-keys)
+        id: tokens
+        env:
+          NIXBUILD_TOKEN_SECRET: ${{ secrets.NIXBUILD_TOKEN }}
+          CACHIX_AUTH_TOKEN_SECRET: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          OPENBAO_TOKEN: ${{ secrets.OPENBAO_TOKEN || secrets.BAO_TOKEN || secrets.VAULT_TOKEN }}
+          BAO_ADDR: ${{ secrets.BAO_ADDR || secrets.OPENBAO_ADDR || secrets.VAULT_ADDR || 'https://openbao.boxd.sh' }}
+        run: |
+          set -euo pipefail
+          nixbuild_token="${NIXBUILD_TOKEN_SECRET:-}"
+          cachix_token="${CACHIX_AUTH_TOKEN_SECRET:-}"
+
+          if { [ -z "$nixbuild_token" ] || [ -z "$cachix_token" ]; } && [ -n "${OPENBAO_TOKEN:-}" ]; then
+            addr="${BAO_ADDR%/}"
+            echo "Fetching missing CI tokens from OpenBao ${addr} (secret/data/ai-api-keys)"
+            json="$(curl -fsS -H "X-Vault-Token: ${OPENBAO_TOKEN}" "${addr}/v1/secret/data/ai-api-keys")"
+            if [ -z "$nixbuild_token" ]; then
+              nixbuild_token="$(jq -r '.data.data.NIXBUILD_TOKEN // empty' <<<"$json")"
+            fi
+            if [ -z "$cachix_token" ]; then
+              cachix_token="$(jq -r '.data.data.CACHIX_AUTH_TOKEN // empty' <<<"$json")"
+            fi
+          fi
+
+          if [ -n "$nixbuild_token" ]; then
+            echo "::add-mask::${nixbuild_token}"
+            {
+              echo "nixbuild_token<<EOF"
+              echo "${nixbuild_token}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+            echo "has_nixbuild=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_nixbuild=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::NIXBUILD_TOKEN not in GitHub secrets or OpenBao; building on the GitHub runner."
+          fi
+
+          if [ -n "$cachix_token" ]; then
+            echo "::add-mask::${cachix_token}"
+            {
+              echo "cachix_auth_token<<EOF"
+              echo "${cachix_token}"
+              echo "EOF"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout
         uses: actions/checkout@v7
 
@@ -75,17 +119,17 @@ jobs:
             accept-flake-config = true
 
       - name: Setup nixbuild.net
-        if: env.NIXBUILD_TOKEN != ''
+        if: steps.tokens.outputs.has_nixbuild == 'true'
         uses: nixbuild/nixbuild-action@v25
         with:
-          nixbuild_token: ${{ env.NIXBUILD_TOKEN }}
+          nixbuild_token: ${{ steps.tokens.outputs.nixbuild_token }}
           generate_summary_for: job
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v17
         with:
           name: codegod100
-          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          authToken: ${{ steps.tokens.outputs.cachix_auth_token || secrets.CACHIX_AUTH_TOKEN }}
           # Pull always. Push from main and same-repo PRs (so matrix jobs can
           # share e.g. skia → ladybird). Fork PRs stay pull-only.
           skipPush: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
@@ -93,15 +137,15 @@ jobs:
       - name: Require Cachix write token on main
         if: github.ref == 'refs/heads/main'
         env:
-          CACHIX_AUTH_TOKEN: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          CACHIX_AUTH_TOKEN: ${{ steps.tokens.outputs.cachix_auth_token || secrets.CACHIX_AUTH_TOKEN }}
         run: |
           if [ -z "${CACHIX_AUTH_TOKEN}" ]; then
-            echo "::error::Repository secret CACHIX_AUTH_TOKEN is not set. Create a write token for the codegod100 Cachix cache and add it under Settings → Secrets → Actions so merges can push binaries."
+            echo "::error::CACHIX_AUTH_TOKEN is not set (GitHub secret or OpenBao ai-api-keys)."
             exit 1
           fi
 
       - name: Build .#${{ matrix.package }} (nixbuild remote store)
-        if: env.NIXBUILD_TOKEN != ''
+        if: steps.tokens.outputs.has_nixbuild == 'true'
         run: |
           set -euo pipefail
           pkg='${{ matrix.package }}'
@@ -124,10 +168,8 @@ jobs:
           nix path-info -rS "${paths[@]}" | tail -n 20
 
       - name: Build .#${{ matrix.package }}
-        if: env.NIXBUILD_TOKEN == ''
-        run: |
-          echo "::warning::NIXBUILD_TOKEN secret is not set; building on the GitHub runner (slow for ladybird/skia). Add a nixbuild.net auth token as repository secret NIXBUILD_TOKEN."
-          nix build --no-link --print-build-logs ".#${{ matrix.package }}"
+        if: steps.tokens.outputs.has_nixbuild != 'true'
+        run: nix build --no-link --print-build-logs ".#${{ matrix.package }}"
 
   # Single status gate for branch rules / auto-merge ("CI success").
   ci-success:
