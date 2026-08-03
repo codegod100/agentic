@@ -503,14 +503,18 @@ ErrorOr<void> OpenBaoStore::store_password(ByteString const& origin, ByteString 
 ErrorOr<Optional<PasswordEntry>> OpenBaoStore::find_password(ByteString const& origin, Optional<ByteString> const& username)
 {
     auto listed = TRY(list_passwords());
+    Optional<PasswordEntry> host_match;
+    auto want_host = host_from_origin(origin);
     for (auto& entry : listed) {
-        if (entry.origin != origin)
-            continue;
         if (username.has_value() && entry.username != *username)
             continue;
-        return entry;
+        if (entry.origin == origin)
+            return entry;
+        auto entry_host = entry.host.is_empty() ? host_from_origin(entry.origin) : entry.host;
+        if (!host_match.has_value() && !want_host.is_empty() && entry_host == want_host)
+            host_match = entry;
     }
-    return OptionalNone {};
+    return host_match;
 }
 
 ErrorOr<Vector<PasswordEntry>> OpenBaoStore::list_passwords()

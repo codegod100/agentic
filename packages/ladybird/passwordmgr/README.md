@@ -38,8 +38,10 @@ Password Manager masks secrets (`••••••••`) and copies via **Cop
 ## Caveats
 
 - Needs network egress to the OpenBao host (no D-Bus / gnome-keyring)
-- No save prompt UI yet (silent store from CredMan APIs)
-- No autofill into `<input>` — only `navigator.credentials` + the manager dialog
+- Autofill fills empty username/password fields on document load, when a
+  password `<input>` is inserted (SPAs), and on password-field focus
+- Skips `autocomplete=off` / `new-password`; matches stored origin or host
+- Form submit silently updates OpenBao when both username and password are present
 - Prefer a narrowly scoped token outside local testing
 
 ## Apply

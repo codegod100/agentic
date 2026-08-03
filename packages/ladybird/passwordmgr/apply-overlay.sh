@@ -49,6 +49,13 @@ if "OpenBaoStore.cpp" not in text:
     text = text.replace(needle, insert, 1)
     changed = True
 
+if "CredentialManagement/PasswordAutofill.cpp" not in text:
+    bao_needle = "    CredentialManagement/OpenBaoStore.cpp\n"
+    if bao_needle not in text:
+        raise SystemExit("CMakeLists.txt: OpenBaoStore.cpp line not found (needed for PasswordAutofill)")
+    text = text.replace(bao_needle, bao_needle + "    CredentialManagement/PasswordAutofill.cpp\n", 1)
+    changed = True
+
 # Remove libsecret pkg-config block from older overlays.
 libsecret_block = (
     "\nfind_package(PkgConfig REQUIRED)\n"
@@ -139,6 +146,134 @@ if needle not in text:
 text = text.replace(needle, insert, 1)
 path.write_text(text)
 print("patched BrowserWindow.cpp menu")
+PY
+
+# --- Form autofill / save hooks (surgical patches into huge upstream files) ---
+python3 - "$ladybird_root" <<'PY'
+from pathlib import Path
+import sys
+from typing import Optional, Tuple
+
+root = Path(sys.argv[1])
+
+def ensure_include(text: str, include: str, after: Optional[str] = None) -> Tuple[str, bool]:
+    if include in text:
+        return text, False
+    needle = after or "#include <LibWeb/"
+    idx = text.find(needle)
+    if idx < 0:
+        # fall back: first include block
+        idx = text.find("#include ")
+        if idx < 0:
+            raise SystemExit(f"cannot insert include {include}")
+    # insert before the found line
+    line_start = text.rfind("\n", 0, idx) + 1
+    return text[:line_start] + include + "\n" + text[line_start:], True
+
+# HTMLInputElement: focus + inserted password fields
+input_cpp = root / "Libraries/LibWeb/HTML/HTMLInputElement.cpp"
+text = input_cpp.read_text()
+changed = False
+text2, c = ensure_include(
+    text,
+    "#include <LibWeb/CredentialManagement/PasswordAutofill.h>",
+    "#include <LibWeb/HTML/HTMLInputElement.h>",
+)
+text, changed = text2, changed or c
+
+focus_hook = "    // AD-HOC: OpenBao password autofill (passwordmgr overlay)\n    if (type_state() == TypeAttributeState::Password)\n        CredentialManagement::PasswordAutofill::try_fill_from_password_field(*this);\n\n"
+if "PasswordAutofill::try_fill_from_password_field" not in text:
+    needle = "void HTMLInputElement::did_receive_focus()\n{\n"
+    if needle not in text:
+        raise SystemExit("HTMLInputElement.cpp: did_receive_focus not found")
+    text = text.replace(needle, needle + focus_hook, 1)
+    changed = True
+
+insert_hook = """    // AD-HOC: OpenBao password autofill when a password field appears (SPAs).
+    if (type_state() == TypeAttributeState::Password && is_connected()) {
+        queue_an_element_task(HTML::Task::Source::DOMManipulation, [this] {
+            CredentialManagement::PasswordAutofill::try_fill_from_password_field(*this);
+        });
+    }
+
+"""
+if "OpenBao password autofill when a password field appears" not in text:
+    needle = "void HTMLInputElement::form_associated_element_was_inserted()\n{\n    create_shadow_tree_if_needed();\n\n"
+    if needle not in text:
+        raise SystemExit("HTMLInputElement.cpp: form_associated_element_was_inserted not found")
+    text = text.replace(needle, needle + insert_hook, 1)
+    changed = True
+
+if changed:
+    input_cpp.write_text(text)
+    print("patched HTMLInputElement.cpp autofill hooks")
+else:
+    print("HTMLInputElement.cpp autofill hooks already present")
+
+# Document: fill after load
+doc_cpp = root / "Libraries/LibWeb/DOM/Document.cpp"
+text = doc_cpp.read_text()
+changed = False
+text2, c = ensure_include(
+    text,
+    "#include <LibWeb/CredentialManagement/PasswordAutofill.h>",
+    "#include <LibWeb/DOM/Document.h>",
+)
+text, changed = text2, changed or c
+# Environments for relevant_global_object / queue_global_task — usually already included
+if "#include <LibWeb/HTML/Scripting/Environments.h>" not in text:
+    text2, c = ensure_include(text, "#include <LibWeb/HTML/Scripting/Environments.h>", "#include <LibWeb/HTML/")
+    text, changed = text2, changed or c
+if "#include <LibWeb/HTML/EventLoop/Task.h>" not in text and "queue_global_task" not in text[:5000]:
+    # Document.cpp already uses HTML::queue_global_task elsewhere; includes should exist.
+    pass
+
+load_hook = """    // AD-HOC: OpenBao password autofill (passwordmgr overlay)
+    HTML::queue_global_task(HTML::Task::Source::DOMManipulation, HTML::relevant_global_object(*this), GC::create_function(heap(), [this] {
+        CredentialManagement::PasswordAutofill::try_fill_document(*this);
+    }));
+
+"""
+if "PasswordAutofill::try_fill_document" not in text:
+    needle = "void Document::completely_finish_loading()\n{\n    m_ongoing_navigation_fetch_controller = nullptr;\n\n"
+    if needle not in text:
+        raise SystemExit("Document.cpp: completely_finish_loading not found")
+    text = text.replace(needle, needle + load_hook, 1)
+    changed = True
+
+if changed:
+    doc_cpp.write_text(text)
+    print("patched Document.cpp autofill hook")
+else:
+    print("Document.cpp autofill hook already present")
+
+# HTMLFormElement: silent save on submit
+form_cpp = root / "Libraries/LibWeb/HTML/HTMLFormElement.cpp"
+text = form_cpp.read_text()
+changed = False
+text2, c = ensure_include(
+    text,
+    "#include <LibWeb/CredentialManagement/PasswordAutofill.h>",
+    "#include <LibWeb/HTML/HTMLFormElement.h>",
+)
+text, changed = text2, changed or c
+
+save_hook = """    // AD-HOC: OpenBao password save (passwordmgr overlay)
+    CredentialManagement::PasswordAutofill::maybe_save_from_form(*this);
+
+"""
+if "PasswordAutofill::maybe_save_from_form" not in text:
+    needle = "WebIDL::ExceptionOr<void> HTMLFormElement::submit_form(GC::Ref<HTMLElement> submitter, SubmitFormOptions options)\n{\n    auto& vm = this->vm();\n    auto& realm = this->realm();\n\n"
+    if needle not in text:
+        raise SystemExit("HTMLFormElement.cpp: submit_form prologue not found")
+    text = text.replace(needle, needle + save_hook, 1)
+    changed = True
+
+if changed:
+    form_cpp.write_text(text)
+    print("patched HTMLFormElement.cpp save hook")
+else:
+    print("HTMLFormElement.cpp save hook already present")
 PY
 
 echo "Password manager (OpenBao) overlay applied to $ladybird_root"
