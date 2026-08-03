@@ -8,7 +8,7 @@
 #include <AK/Utf16String.h>
 #include <LibJS/Runtime/ValueInlines.h>
 #include <LibWeb/CredentialManagement/CredentialsContainer.h>
-#include <LibWeb/CredentialManagement/GnomeKeyringStore.h>
+#include <LibWeb/CredentialManagement/OpenBaoStore.h>
 #include <LibWeb/CredentialManagement/PasswordCredential.h>
 #include <LibWeb/CredentialManagement/PasswordCredentialOperations.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
@@ -43,12 +43,12 @@ static ByteString utf16_to_byte_string(Utf16String const& string)
     return string_to_byte_string(string.to_well_formed_utf8());
 }
 
-static WebIDL::ExceptionOr<GC::Ref<PasswordCredential>> password_from_keyring(JS::Realm& realm, URL::Origin const& origin)
+static WebIDL::ExceptionOr<GC::Ref<PasswordCredential>> password_from_openbao(JS::Realm& realm, URL::Origin const& origin)
 {
     auto origin_s = string_to_byte_string(origin.serialize());
-    auto found = GnomeKeyringStore::find_password(origin_s);
+    auto found = OpenBaoStore::find_password(origin_s);
     if (found.is_error())
-        return WebIDL::NotAllowedError::create(realm, "Keyring unavailable (try --disable-sandbox)"_utf16);
+        return WebIDL::NotAllowedError::create(realm, "OpenBao unavailable (set BAO_ADDR / OPENBAO_TOKEN)"_utf16);
     if (!found.value().has_value())
         return WebIDL::NotAllowedError::create(realm, "No password for this origin"_utf16);
 
@@ -60,14 +60,14 @@ static WebIDL::ExceptionOr<GC::Ref<PasswordCredential>> password_from_keyring(JS
     return create_password_credential(realm, data, origin);
 }
 
-static WebIDL::ExceptionOr<void> store_password_in_keyring(JS::Realm& realm, PasswordCredential const& credential)
+static WebIDL::ExceptionOr<void> store_password_in_openbao(JS::Realm& realm, PasswordCredential const& credential)
 {
     auto origin = string_to_byte_string(credential.origin().serialize());
     auto username = utf16_to_byte_string(credential.id());
     auto password = utf16_to_byte_string(credential.password());
-    auto result = GnomeKeyringStore::store_password(origin, username, password);
+    auto result = OpenBaoStore::store_password(origin, username, password);
     if (result.is_error())
-        return WebIDL::NotAllowedError::create(realm, "Failed to store password in keyring"_utf16);
+        return WebIDL::NotAllowedError::create(realm, "Failed to store password in OpenBao"_utf16);
     return {};
 }
 
@@ -85,7 +85,7 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::get(Bindings::CredentialRequestOp
 
     if (options.password) {
         auto origin = HTML::current_settings_object().origin();
-        auto result = password_from_keyring(realm, origin);
+        auto result = password_from_openbao(realm, origin);
         if (result.is_error())
             return WebIDL::create_rejected_promise_from_exception(realm, result.release_error());
         return WebIDL::create_resolved_promise(realm, JS::Value(result.release_value()));
@@ -101,7 +101,7 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::store(Credential const& credentia
 
     if (credential.type() == "password"_utf16_fly_string) {
         auto const& password_credential = static_cast<PasswordCredential const&>(credential);
-        auto result = store_password_in_keyring(realm, password_credential);
+        auto result = store_password_in_openbao(realm, password_credential);
         if (result.is_error())
             return WebIDL::create_rejected_promise_from_exception(realm, result.release_error());
         // Platform objects must go through GC::Ref — JS::Value has no ctor from T&.
@@ -135,7 +135,7 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::create(Bindings::CredentialCreati
         if (result.is_error())
             return WebIDL::create_rejected_promise_from_exception(realm, result.release_error());
         auto credential = result.release_value();
-        auto stored = store_password_in_keyring(realm, credential);
+        auto stored = store_password_in_openbao(realm, credential);
         if (stored.is_error())
             return WebIDL::create_rejected_promise_from_exception(realm, stored.release_error());
         return WebIDL::create_resolved_promise(realm, JS::Value(credential));

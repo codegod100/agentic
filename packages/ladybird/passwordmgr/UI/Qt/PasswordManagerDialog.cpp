@@ -1,10 +1,10 @@
 /*
- * Experimental password manager dialog (GNOME Keyring backed).
+ * Experimental password manager dialog (OpenBao KV backed).
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
 #include <AK/StringView.h>
-#include <LibWeb/CredentialManagement/GnomeKeyringStore.h>
+#include <LibWeb/CredentialManagement/OpenBaoStore.h>
 #include <UI/Qt/PasswordManagerDialog.h>
 
 #include <QHBoxLayout>
@@ -82,9 +82,10 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
     auto* passkeys_page = new QWidget(tabs);
     auto* passkeys_layout = new QVBoxLayout(passkeys_page);
     passkeys_layout->addWidget(new QLabel(
-        "Passkeys are stored in the same GNOME Keyring schema "
-        "(kind=passkey). Create/get them via navigator.credentials "
-        "on sites like webauthn.io while running with --disable-sandbox.",
+        "Passkeys are stored in OpenBao KV v2 "
+        "(secret/data/passkeys/<credentialId> by default). "
+        "Create/get them via navigator.credentials on sites like webauthn.io. "
+        "Configure BAO_ADDR and OPENBAO_TOKEN (same layout as openbao-passkeys).",
         passkeys_page));
     passkeys_layout->addStretch();
 
@@ -101,10 +102,10 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
 void PasswordManagerDialog::refresh()
 {
     m_table->setRowCount(0);
-    auto listed = Web::CredentialManagement::GnomeKeyringStore::list_passwords();
+    auto listed = Web::CredentialManagement::OpenBaoStore::list_passwords();
     if (listed.is_error()) {
-        QMessageBox::warning(this, "Keyring",
-            QString("Could not list passwords:\n%1\n\nIs gnome-keyring running? WebContent also needs --disable-sandbox for D-Bus.")
+        QMessageBox::warning(this, "OpenBao",
+            QString("Could not list passwords:\n%1\n\nSet BAO_ADDR and OPENBAO_TOKEN (or BAO_TOKEN).")
                 .arg(error_to_qstring(listed.error())));
         return;
     }
@@ -126,12 +127,12 @@ void PasswordManagerDialog::add_password()
         QMessageBox::information(this, "Password Manager", "Origin, username, and password are required.");
         return;
     }
-    auto result = Web::CredentialManagement::GnomeKeyringStore::store_password(
+    auto result = Web::CredentialManagement::OpenBaoStore::store_password(
         qstring_to_byte_string(origin),
         qstring_to_byte_string(username),
         qstring_to_byte_string(password));
     if (result.is_error()) {
-        QMessageBox::warning(this, "Keyring", error_to_qstring(result.error()));
+        QMessageBox::warning(this, "OpenBao", error_to_qstring(result.error()));
         return;
     }
     m_password->clear();
@@ -146,11 +147,11 @@ void PasswordManagerDialog::remove_selected()
     int row = rows.first().row();
     auto origin = m_table->item(row, 0)->text();
     auto username = m_table->item(row, 1)->text();
-    auto result = Web::CredentialManagement::GnomeKeyringStore::delete_password(
+    auto result = Web::CredentialManagement::OpenBaoStore::delete_password(
         qstring_to_byte_string(origin),
         qstring_to_byte_string(username));
     if (result.is_error()) {
-        QMessageBox::warning(this, "Keyring", error_to_qstring(result.error()));
+        QMessageBox::warning(this, "OpenBao", error_to_qstring(result.error()));
         return;
     }
     refresh();

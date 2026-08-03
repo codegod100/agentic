@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Apply experimental GNOME Keyring password manager scaffold onto a Ladybird tree.
+# Apply experimental OpenBao password manager scaffold onto a Ladybird tree.
 # Run after webauthn/apply-overlay.sh (replaces CredentialsContainer + passkey store wiring).
 set -euo pipefail
 
@@ -14,6 +14,10 @@ fi
 mkdir -p "$ladybird_root/Libraries/LibWeb/CredentialManagement"
 mkdir -p "$ladybird_root/Libraries/LibWeb/WebAuthn"
 mkdir -p "$ladybird_root/UI/Qt"
+
+# Drop previous libsecret backend if present.
+rm -f "$ladybird_root/Libraries/LibWeb/CredentialManagement/GnomeKeyringStore.cpp" \
+  "$ladybird_root/Libraries/LibWeb/CredentialManagement/GnomeKeyringStore.h"
 
 install -m 644 "$overlay_root"/Libraries/LibWeb/CredentialManagement/* \
   "$ladybird_root/Libraries/LibWeb/CredentialManagement/"
@@ -32,26 +36,54 @@ path = Path(sys.argv[1])
 text = path.read_text()
 changed = False
 
+# Migrate away from GnomeKeyringStore / libsecret if a prior overlay applied them.
+if "CredentialManagement/GnomeKeyringStore.cpp" in text:
+    text = text.replace("    CredentialManagement/GnomeKeyringStore.cpp\n", "")
+    changed = True
+
 needle = "    CredentialManagement/PasswordCredentialOperations.cpp\n"
-insert = needle + "    CredentialManagement/GnomeKeyringStore.cpp\n"
-if "GnomeKeyringStore.cpp" not in text:
+insert = needle + "    CredentialManagement/OpenBaoStore.cpp\n"
+if "OpenBaoStore.cpp" not in text:
     if needle not in text:
         raise SystemExit("CMakeLists.txt: PasswordCredentialOperations.cpp line not found")
     text = text.replace(needle, insert, 1)
     changed = True
 
-if "PkgConfig::LIBSECRET" not in text:
-    marker = "target_link_libraries(LibWeb PRIVATE LibCore"
-    idx = text.find(marker)
-    if idx < 0:
-        raise SystemExit("LibWeb target_link_libraries marker not found")
-    hook = (
-        "\nfind_package(PkgConfig REQUIRED)\n"
-        "pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)\n"
-        "target_link_libraries(LibWeb PRIVATE PkgConfig::LIBSECRET)\n\n"
-    )
-    text = text[:idx] + hook + text[idx:]
+# Remove libsecret pkg-config block from older overlays.
+libsecret_block = (
+    "\nfind_package(PkgConfig REQUIRED)\n"
+    "pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)\n"
+    "target_link_libraries(LibWeb PRIVATE PkgConfig::LIBSECRET)\n"
+)
+if libsecret_block in text:
+    text = text.replace(libsecret_block, "\n")
     changed = True
+# Also handle without leading newline variants.
+for fragment in (
+    "find_package(PkgConfig REQUIRED)\npkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)\ntarget_link_libraries(LibWeb PRIVATE PkgConfig::LIBSECRET)\n",
+    "pkg_check_modules(LIBSECRET REQUIRED IMPORTED_TARGET libsecret-1)\n",
+    "target_link_libraries(LibWeb PRIVATE PkgConfig::LIBSECRET)\n",
+):
+    if fragment in text and "LIBSECRET" in fragment:
+        text = text.replace(fragment, "")
+        changed = True
+
+if "CURL::libcurl" not in text or "OpenBaoStore" in text:
+    # Ensure LibWeb links libcurl for the OpenBao HTTP client.
+    marker = "target_link_libraries(LibWeb PRIVATE LibCore"
+    if "target_link_libraries(LibWeb PRIVATE CURL::libcurl)" not in text:
+        idx = text.find(marker)
+        if idx < 0:
+            raise SystemExit("LibWeb target_link_libraries marker not found")
+        hook = (
+            "\n# OpenBao KV client (passwordmgr overlay)\n"
+            "find_package(CURL REQUIRED)\n"
+            "target_link_libraries(LibWeb PRIVATE CURL::libcurl)\n\n"
+        )
+        # Avoid duplicating if somehow already present nearby.
+        if "OpenBao KV client" not in text:
+            text = text[:idx] + hook + text[idx:]
+            changed = True
 
 if changed:
     path.write_text(text)
@@ -109,4 +141,4 @@ path.write_text(text)
 print("patched BrowserWindow.cpp menu")
 PY
 
-echo "Password manager overlay applied to $ladybird_root"
+echo "Password manager (OpenBao) overlay applied to $ladybird_root"

@@ -1,33 +1,40 @@
-# Experimental password manager + GNOME Keyring
+# Experimental password manager + OpenBao
 
 **Scaffold.** Not a production password manager.
 
+Inspired by [openbao-passkeys](https://github.com/codegod100/openbao-passkeys): passwords and software passkeys live in OpenBao KV v2.
+
 ## What it is
 
-- `GnomeKeyringStore` — libsecret / Secret Service helper (GNOME Keyring, KWallet via org.freedesktop.secrets)
+- `OpenBaoStore` — sync libcurl client for OpenBao KV v2
 - CredMan hooks: `password` create / get / store + passkeys persisted to the same store
 - Qt **Edit → Password Manager…** dialog to list / delete / manually add password entries
 
-## Schema
+## Configuration
 
-Custom libsecret schema `org.ladybird.ExperimentalCredential`:
+| Env | Default | Purpose |
+|-----|---------|---------|
+| `BAO_ADDR` / `OPENBAO_ADDR` / `VAULT_ADDR` | `http://127.0.0.1:8200` | OpenBao URL |
+| `OPENBAO_TOKEN` / `BAO_TOKEN` / `VAULT_TOKEN` | (required) | Auth token |
+| `OPENBAO_KV_MOUNT` | `secret` | KV v2 mount |
+| `OPENBAO_PASSKEYS_PREFIX` | `passkeys` | Passkey path prefix |
+| `OPENBAO_PASSWORDS_PREFIX` | `passwords` | Password path prefix |
 
-| attribute   | password        | passkey              |
-|------------|-----------------|----------------------|
-| `kind`     | `password`      | `passkey`            |
-| `origin`   | serialized origin | (empty)            |
-| `username` | username        | (empty)              |
-| `rp_id`    | (empty)         | WebAuthn rpId        |
-| `cred_id`  | (empty)         | base64url credential id |
+### Paths (same layout as openbao-passkeys)
 
-Secret payload: password UTF-8, or passkey JSON `{user_handle,private_key,sign_count}` (base64 fields).
+| Kind | Path |
+|------|------|
+| Passkeys | `secret/data/passkeys/<credentialId>` |
+| Passwords | `secret/data/passwords/<id>` |
+
+Passkey records use Ladybird’s P-256 scalar under `privateKeyBytes` + `signCount` (registration starts at `0`). Extension JWK-only records are skipped.
 
 ## Caveats
 
-- WebContent talks to the session bus → needs **`--disable-sandbox`** (seccomp blocks D-Bus)
+- Needs network egress to the OpenBao host (no D-Bus / gnome-keyring)
 - No save prompt UI yet (silent store from CredMan APIs)
 - No autofill into `<input>` — only `navigator.credentials` + the manager dialog
-- Unlock / confirm prompts come from the desktop keyring daemon
+- Prefer a narrowly scoped token outside local testing
 
 ## Apply
 

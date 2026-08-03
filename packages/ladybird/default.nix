@@ -49,8 +49,8 @@
   wrapGAppsHook3,
   gtk3,
   gsettings-desktop-schemas,
-  libsecret,
-  # Experimental in-tree software passkeys (navigator.credentials + ES256).
+  # Experimental in-tree software passkeys (navigator.credentials + ES256)
+  # with OpenBao KV storage (inspired by openbao-passkeys).
   enableSoftwarePasskeys ? true,
 }:
 
@@ -187,7 +187,6 @@ stdenv.mkDerivation (finalAttrs: {
     vulkan-memory-allocator
     gtk3
     gsettings-desktop-schemas
-    libsecret
   ];
 
   preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''

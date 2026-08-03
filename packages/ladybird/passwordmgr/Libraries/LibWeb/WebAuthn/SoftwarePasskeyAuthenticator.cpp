@@ -4,6 +4,7 @@
  */
 
 #include <AK/Base64.h>
+#include <AK/Format.h>
 #include <AK/Random.h>
 #include <AK/StringBuilder.h>
 #include <LibCrypto/BigInt/UnsignedBigInteger.h>
@@ -12,7 +13,7 @@
 #include <LibJS/Runtime/ArrayBuffer.h>
 #include <LibJS/Runtime/ValueInlines.h>
 #include <LibURL/Origin.h>
-#include <LibWeb/CredentialManagement/GnomeKeyringStore.h>
+#include <LibWeb/CredentialManagement/OpenBaoStore.h>
 #include <LibWeb/HTML/Scripting/Environments.h>
 #include <LibWeb/WebAuthn/AuthenticatorAssertionResponse.h>
 #include <LibWeb/WebAuthn/AuthenticatorAttestationResponse.h>
@@ -221,27 +222,30 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_create_credential(JS:
     auto private_key_bytes = private_key_bytes_or_error.release_value();
     auto id_b64 = TRY(lift_string(realm, encode_base64url(credential_id, AK::OmitPadding::Yes)));
 
-    // Prefer GNOME Keyring / Secret Service; fall back to process-local store.
-    auto keyring_result = CredentialManagement::GnomeKeyringStore::store_passkey({
+    // Prefer OpenBao KV; fall back to process-local store.
+    // Registration signCount is 0 (WebAuthn); assertions must return a strictly greater count.
+    constexpr u32 registration_sign_count = 0;
+    auto openbao_result = CredentialManagement::OpenBaoStore::store_passkey({
         .rp_id = rp_id,
         .credential_id_b64 = ByteString { id_b64.bytes() },
         .user_handle = MUST(ByteBuffer::copy(user_handle)),
         .private_key_bytes = MUST(ByteBuffer::copy(private_key_bytes)),
-        .sign_count = 1,
+        .sign_count = registration_sign_count,
         .item_path = {},
     });
-    if (keyring_result.is_error()) {
+    if (openbao_result.is_error()) {
+        dbgln("OpenBao passkey store failed, using in-memory fallback: {}", openbao_result.error());
         passkey_store().append(StoredPasskey {
             .credential_id = MUST(ByteBuffer::copy(credential_id)),
             .user_handle = MUST(ByteBuffer::copy(user_handle)),
             .rp_id = rp_id,
             .private_key_bytes = move(private_key_bytes),
-            .sign_count = 1,
+            .sign_count = registration_sign_count,
         });
     }
 
     auto client_data = TRY(build_client_data_json(realm, "webauthn.create"sv, challenge, origin));
-    auto auth_data = TRY(make_authenticator_data(realm, rp_id, credential_id, cose_key, true, 1));
+    auto auth_data = TRY(make_authenticator_data(realm, rp_id, credential_id, cose_key, true, registration_sign_count));
     auto attestation_object = TRY(encode_none_attestation_object(realm, auth_data));
 
     auto client_data_ab = JS::ArrayBuffer::create(realm, move(client_data));
@@ -275,9 +279,9 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
     ByteBuffer private_key_bytes;
     u32 sign_count = 0;
 
-    auto keyring = CredentialManagement::GnomeKeyringStore::find_passkey(rp_id);
-    if (!keyring.is_error() && keyring.value().has_value()) {
-        auto entry = keyring.value().release_value();
+    auto openbao = CredentialManagement::OpenBaoStore::find_passkey(rp_id);
+    if (!openbao.is_error() && openbao.value().has_value()) {
+        auto entry = openbao.value().release_value();
         auto decoded_id = TRY(lift(realm, decode_base64url(entry.credential_id_b64)));
         credential_id = move(decoded_id);
         user_handle = move(entry.user_handle);
@@ -286,7 +290,8 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
         entry.sign_count = sign_count;
         auto refreshed_id_b64 = TRY(lift_string(realm, encode_base64url(credential_id, AK::OmitPadding::Yes)));
         entry.credential_id_b64 = to_byte_string(refreshed_id_b64);
-        (void)CredentialManagement::GnomeKeyringStore::store_passkey(entry);
+        if (auto stored = CredentialManagement::OpenBaoStore::store_passkey(entry); stored.is_error())
+            dbgln("OpenBao passkey signCount update failed: {}", stored.error());
     } else {
         StoredPasskey* match = nullptr;
         for (auto& entry : passkey_store()) {
