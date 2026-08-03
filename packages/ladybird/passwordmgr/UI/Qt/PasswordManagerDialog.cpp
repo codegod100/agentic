@@ -55,10 +55,14 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
 
     m_table = new QTableWidget(0, 3, passwords_page);
     m_table->setHorizontalHeaderLabels({ "Origin", "Username", "Password" });
+    m_table->horizontalHeader()->setSectionResizeMode(0, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(1, QHeaderView::ResizeToContents);
+    m_table->horizontalHeader()->setSectionResizeMode(2, QHeaderView::Stretch);
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
     m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
+    m_table->setTextElideMode(Qt::ElideNone);
     passwords_layout->addWidget(m_table);
 
     auto* form = new QHBoxLayout();
@@ -135,6 +139,8 @@ void PasswordManagerDialog::refresh()
         password_item->setToolTip(QStringLiteral("Double-click row or use Copy password"));
         m_table->setItem(row, 2, password_item);
     }
+    m_table->resizeColumnToContents(0);
+    m_table->resizeColumnToContents(1);
 }
 
 void PasswordManagerDialog::add_password()
