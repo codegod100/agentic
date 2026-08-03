@@ -27,7 +27,13 @@ Inspired by [openbao-passkeys](https://github.com/codegod100/openbao-passkeys): 
 | Passkeys | `secret/data/passkeys/<credentialId>` |
 | Passwords | `secret/data/passwords/<id>` |
 
-Passkey records use Ladybird’s P-256 scalar under `privateKeyBytes` + `signCount` (registration starts at `0`). Extension JWK-only records are skipped.
+Passkey records store both:
+- `privateKeyBytes` — Ladybird P-256 scalar (base64url)
+- `privateKeyJwk` — EC P-256 JWK (`d`/`x`/`y`) for [openbao-passkeys](https://github.com/codegod100/openbao-passkeys) interop
+
+Registration `signCount` starts at `0`. Lists are cached in-process (~5 minutes); Password Manager **Refresh** clears the cache.
+
+Password Manager masks secrets (`••••••••`) and copies via **Copy password** / double-click.
 
 ## Caveats
 

@@ -53,6 +53,9 @@ public:
     static ErrorOr<Optional<PasskeyEntry>> find_passkey(ByteString const& rp_id);
     static ErrorOr<Vector<PasskeyEntry>> list_passkeys();
     static ErrorOr<void> delete_passkey(ByteString const& rp_id, ByteString const& credential_id_b64);
+
+    // Drop in-process list caches (Password Manager Refresh / after writes).
+    static void invalidate_cache();
 };
 
 }

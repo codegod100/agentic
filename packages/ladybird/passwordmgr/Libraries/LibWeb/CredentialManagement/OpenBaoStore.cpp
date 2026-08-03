@@ -7,6 +7,7 @@
 
 #include <AK/Base64.h>
 #include <AK/Format.h>
+#include <AK/HashMap.h>
 #include <AK/JsonArray.h>
 #include <AK/JsonObject.h>
 #include <AK/JsonParser.h>
@@ -15,6 +16,8 @@
 #include <AK/StringBuilder.h>
 #include <AK/Time.h>
 #include <LibCore/Environment.h>
+#include <LibCrypto/BigInt/UnsignedBigInteger.h>
+#include <LibCrypto/Curves/SECPxxxr1.h>
 #include <LibWeb/CredentialManagement/OpenBaoStore.h>
 #include <curl/curl.h>
 
@@ -29,6 +32,39 @@ struct OpenBaoConfig {
     ByteString passkeys_prefix;
     ByteString passwords_prefix;
 };
+
+// Process-local caches so Password Manager / CredMan do not re-fetch every open.
+static constexpr i64 cache_ttl_ms = 5 * 60 * 1000;
+
+struct ListCaches {
+    Optional<Vector<PasswordEntry>> passwords;
+    Optional<MonotonicTime> passwords_at;
+    Optional<Vector<PasskeyEntry>> passkeys;
+    Optional<MonotonicTime> passkeys_at;
+    HashMap<ByteString, JsonObject> records; // "prefix\\0id" → KV data object
+};
+
+static ListCaches& caches()
+{
+    static ListCaches cache;
+    return cache;
+}
+
+static bool cache_fresh(Optional<MonotonicTime> const& at)
+{
+    if (!at.has_value())
+        return false;
+    return (MonotonicTime::now() - *at).to_milliseconds() < cache_ttl_ms;
+}
+
+static ByteString record_cache_key(ByteString const& prefix, ByteString const& id)
+{
+    StringBuilder builder;
+    builder.append(prefix);
+    builder.append('\0');
+    builder.append(id);
+    return builder.to_byte_string();
+}
 
 static Optional<ByteString> env_get(StringView name)
 {
@@ -215,6 +251,10 @@ static ErrorOr<Vector<ByteString>> list_kv_keys(OpenBaoConfig const& config, Byt
 
 static ErrorOr<Optional<JsonObject>> get_kv_record(OpenBaoConfig const& config, ByteString const& prefix, ByteString const& id)
 {
+    auto key = record_cache_key(prefix, id);
+    if (auto cached = caches().records.get(key); cached.has_value())
+        return JsonObject { *cached };
+
     auto response = TRY(http_request(config, "GET"sv, kv_data_path(config, prefix, id)));
     if (response.status == 404)
         return OptionalNone {};
@@ -228,24 +268,37 @@ static ErrorOr<Optional<JsonObject>> get_kv_record(OpenBaoConfig const& config, 
     auto inner = outer->get_object("data"sv);
     if (!inner.has_value())
         return OptionalNone {};
-    return JsonObject { *inner };
+    auto object = JsonObject { *inner };
+    caches().records.set(key, object);
+    return object;
 }
 
 static ErrorOr<void> put_kv_record(OpenBaoConfig const& config, ByteString const& prefix, ByteString const& id, JsonObject record)
 {
     JsonObject data_wrapper;
-    data_wrapper.set("data"sv, JsonValue { move(record) });
+    data_wrapper.set("data"sv, JsonValue { record });
     auto body = data_wrapper.serialized().to_byte_string();
     auto response = TRY(http_request(config, "POST"sv, kv_data_path(config, prefix, id), body));
-    return ensure_ok(response, "put");
+    TRY(ensure_ok(response, "put"));
+    caches().records.set(record_cache_key(prefix, id), move(record));
+    caches().passwords.clear();
+    caches().passwords_at.clear();
+    caches().passkeys.clear();
+    caches().passkeys_at.clear();
+    return {};
 }
 
 static ErrorOr<void> delete_kv_record(OpenBaoConfig const& config, ByteString const& prefix, ByteString const& id)
 {
     auto response = TRY(http_request(config, "DELETE"sv, kv_metadata_path(config, prefix, id)));
-    if (response.status == 404)
-        return {};
-    return ensure_ok(response, "delete");
+    if (response.status != 404)
+        TRY(ensure_ok(response, "delete"));
+    caches().records.remove(record_cache_key(prefix, id));
+    caches().passwords.clear();
+    caches().passwords_at.clear();
+    caches().passkeys.clear();
+    caches().passkeys_at.clear();
+    return {};
 }
 
 static ByteString host_from_origin(ByteString const& origin)
@@ -302,6 +355,66 @@ static ErrorOr<ByteBuffer> decode_b64_flexible(ByteString const& value)
     return decode_base64(StringView { value });
 }
 
+static ErrorOr<ByteBuffer> pad_or_trim_scalar_32(ByteBuffer bytes)
+{
+    if (bytes.size() == 32)
+        return bytes;
+    if (bytes.size() > 32) {
+        // Leading zero padding from some encoders.
+        size_t start = 0;
+        while (start < bytes.size() - 32 && bytes[start] == 0)
+            ++start;
+        if (bytes.size() - start != 32)
+            return Error::from_string_literal("Invalid P-256 private scalar length");
+        return TRY(ByteBuffer::copy(bytes.bytes().slice(start, 32)));
+    }
+    auto out = TRY(ByteBuffer::create_zeroed(32));
+    out.overwrite(32 - bytes.size(), bytes.data(), bytes.size());
+    return out;
+}
+
+static ErrorOr<ByteBuffer> private_key_bytes_from_jwk(JsonObject const& jwk)
+{
+    auto d = string_field(jwk, "d"sv);
+    if (d.is_empty())
+        return Error::from_string_literal("privateKeyJwk missing d");
+    auto kty = string_field(jwk, "kty"sv);
+    auto crv = string_field(jwk, "crv"sv);
+    if (!kty.is_empty() && kty != "EC")
+        return Error::from_string_literal("Unsupported privateKeyJwk kty");
+    if (!crv.is_empty() && crv != "P-256")
+        return Error::from_string_literal("Unsupported privateKeyJwk crv");
+    return pad_or_trim_scalar_32(TRY(decode_b64_flexible(d)));
+}
+
+static ErrorOr<JsonObject> jwk_from_private_key_bytes(ByteBuffer const& private_key_bytes)
+{
+    auto scalar_bytes = TRY(pad_or_trim_scalar_32(TRY(ByteBuffer::copy(private_key_bytes))));
+    ::Crypto::Curves::SECP256r1 curve;
+    auto private_key = ::Crypto::UnsignedBigInteger::import_data(scalar_bytes);
+    auto public_point = TRY(curve.generate_public_key(private_key));
+    auto x = TRY(public_point.x_bytes());
+    auto y = TRY(public_point.y_bytes());
+
+    JsonObject jwk;
+    jwk.set("kty"sv, JsonValue { "EC"_string });
+    jwk.set("crv"sv, JsonValue { "P-256"_string });
+    jwk.set("x"sv, JsonValue { TRY(encode_base64url(x, AK::OmitPadding::Yes)) });
+    jwk.set("y"sv, JsonValue { TRY(encode_base64url(y, AK::OmitPadding::Yes)) });
+    jwk.set("d"sv, JsonValue { TRY(encode_base64url(scalar_bytes, AK::OmitPadding::Yes)) });
+    JsonArray key_ops;
+    MUST(key_ops.append(JsonValue { "sign"_string }));
+    jwk.set("key_ops"sv, JsonValue { move(key_ops) });
+    jwk.set("ext"sv, JsonValue { true });
+    return jwk;
+}
+
+static void copy_optional_string_field(JsonObject& dest, JsonObject const& src, StringView key)
+{
+    if (auto value = src.get_string(key); value.has_value())
+        dest.set(key, JsonValue { *value });
+}
+
 static PasswordEntry password_from_record(JsonObject const& record, ByteString item_path)
 {
     return PasswordEntry {
@@ -319,12 +432,21 @@ static ErrorOr<PasskeyEntry> passkey_from_record(JsonObject const& record, ByteS
     auto rp_id = string_field(record, "rpId"sv);
     auto credential_id = string_field(record, "credentialId"sv);
     auto user_b64 = string_field(record, "userHandle"sv);
-    // Ladybird stores the P-256 scalar under privateKeyBytes.
+    if (rp_id.is_empty() || credential_id.is_empty())
+        return Error::from_string_literal("Malformed OpenBao passkey record");
+
+    ByteBuffer private_key_bytes;
     auto key_b64 = string_field(record, "privateKeyBytes"sv);
     if (key_b64.is_empty())
         key_b64 = string_field(record, "privateKey"sv);
-    if (rp_id.is_empty() || credential_id.is_empty() || key_b64.is_empty())
-        return Error::from_string_literal("Malformed OpenBao passkey record");
+    if (!key_b64.is_empty()) {
+        private_key_bytes = TRY(pad_or_trim_scalar_32(TRY(decode_b64_flexible(key_b64))));
+    } else if (auto jwk = record.get_object("privateKeyJwk"sv); jwk.has_value()) {
+        // openbao-passkeys Chrome extension format.
+        private_key_bytes = TRY(private_key_bytes_from_jwk(*jwk));
+    } else {
+        return Error::from_string_literal("Passkey missing privateKeyBytes/privateKeyJwk");
+    }
 
     ByteBuffer user_handle;
     if (!user_b64.is_empty())
@@ -334,7 +456,7 @@ static ErrorOr<PasskeyEntry> passkey_from_record(JsonObject const& record, ByteS
         .rp_id = move(rp_id),
         .credential_id_b64 = move(credential_id),
         .user_handle = move(user_handle),
-        .private_key_bytes = TRY(decode_b64_flexible(key_b64)),
+        .private_key_bytes = move(private_key_bytes),
         .sign_count = u32_field(record, "signCount"sv, 0),
         .item_path = move(item_path),
     };
@@ -393,6 +515,9 @@ ErrorOr<Optional<PasswordEntry>> OpenBaoStore::find_password(ByteString const& o
 
 ErrorOr<Vector<PasswordEntry>> OpenBaoStore::list_passwords()
 {
+    if (caches().passwords.has_value() && cache_fresh(caches().passwords_at))
+        return *caches().passwords;
+
     auto config = TRY(load_config());
     auto keys = TRY(list_kv_keys(config, config.passwords_prefix));
     Vector<PasswordEntry> out;
@@ -406,6 +531,8 @@ ErrorOr<Vector<PasswordEntry>> OpenBaoStore::list_passwords()
             entry.id = id;
         out.append(move(entry));
     }
+    caches().passwords = out;
+    caches().passwords_at = MonotonicTime::now();
     return out;
 }
 
@@ -427,26 +554,39 @@ ErrorOr<void> OpenBaoStore::store_passkey(PasskeyEntry const& entry)
 {
     auto config = TRY(load_config());
     auto user_b64 = TRY(encode_base64url(entry.user_handle, AK::OmitPadding::Yes));
-    auto key_b64 = TRY(encode_base64url(entry.private_key_bytes, AK::OmitPadding::Yes));
+    auto scalar_bytes = TRY(pad_or_trim_scalar_32(TRY(ByteBuffer::copy(entry.private_key_bytes))));
+    auto key_b64 = TRY(encode_base64url(scalar_bytes, AK::OmitPadding::Yes));
+    auto jwk = TRY(jwk_from_private_key_bytes(scalar_bytes));
 
     JsonObject record;
+    // Preserve extension metadata when bumping signCount.
+    if (auto previous = TRY(get_kv_record(config, config.passkeys_prefix, entry.credential_id_b64)); previous.has_value()) {
+        for (auto key : { "rpName"sv, "userName"sv, "userDisplayName"sv, "publicKeySpki"sv, "createdAt"sv, "aaguid"sv })
+            copy_optional_string_field(record, *previous, key);
+        if (auto transports = previous->get_array("transports"sv); transports.has_value())
+            record.set("transports"sv, JsonValue { JsonArray { *transports } });
+        if (auto backup = previous->get_bool("backupEligible"sv); backup.has_value())
+            record.set("backupEligible"sv, JsonValue { *backup });
+        if (auto backup = previous->get_bool("backupState"sv); backup.has_value())
+            record.set("backupState"sv, JsonValue { *backup });
+    }
+
     record.set("credentialId"sv, JsonValue { json_string(entry.credential_id_b64) });
     record.set("rpId"sv, JsonValue { json_string(entry.rp_id) });
     record.set("userHandle"sv, JsonValue { user_b64 });
     record.set("privateKeyBytes"sv, JsonValue { key_b64 });
+    record.set("privateKeyJwk"sv, JsonValue { move(jwk) });
     record.set("signCount"sv, JsonValue { entry.sign_count });
-    JsonArray transports;
-    MUST(transports.append(JsonValue { "internal"_string }));
-    record.set("transports"sv, JsonValue { move(transports) });
+    if (!record.has("transports"sv)) {
+        JsonArray transports;
+        MUST(transports.append(JsonValue { "internal"_string }));
+        record.set("transports"sv, JsonValue { move(transports) });
+    }
     record.set("source"sv, JsonValue { "ladybird"_string });
     record.set("updatedAt"sv, JsonValue { json_string(iso8601_now()) });
-
-    if (auto previous = TRY(get_kv_record(config, config.passkeys_prefix, entry.credential_id_b64)); previous.has_value()) {
-        auto created = string_field(*previous, "createdAt"sv);
-        record.set("createdAt"sv, JsonValue { json_string(created.is_empty() ? iso8601_now() : created) });
-    } else {
+    record.set("lastUsedAt"sv, JsonValue { json_string(iso8601_now()) });
+    if (!record.has("createdAt"sv))
         record.set("createdAt"sv, JsonValue { json_string(iso8601_now()) });
-    }
 
     TRY(put_kv_record(config, config.passkeys_prefix, entry.credential_id_b64, move(record)));
     return {};
@@ -464,6 +604,9 @@ ErrorOr<Optional<PasskeyEntry>> OpenBaoStore::find_passkey(ByteString const& rp_
 
 ErrorOr<Vector<PasskeyEntry>> OpenBaoStore::list_passkeys()
 {
+    if (caches().passkeys.has_value() && cache_fresh(caches().passkeys_at))
+        return *caches().passkeys;
+
     auto config = TRY(load_config());
     auto keys = TRY(list_kv_keys(config, config.passkeys_prefix));
     Vector<PasskeyEntry> out;
@@ -471,12 +614,6 @@ ErrorOr<Vector<PasskeyEntry>> OpenBaoStore::list_passkeys()
         auto record = TRY(get_kv_record(config, config.passkeys_prefix, id));
         if (!record.has_value())
             continue;
-        // Skip Chrome-extension JWK-only records (no scalar key bytes).
-        if (string_field(*record, "privateKeyBytes"sv).is_empty()
-            && string_field(*record, "privateKey"sv).is_empty()) {
-            dbgln("OpenBao: skipping passkey {} (no privateKeyBytes; likely extension JWK)", id);
-            continue;
-        }
         auto path = ByteString::formatted("{}/data/{}/{}", config.kv_mount, config.passkeys_prefix, id);
         auto entry_or_error = passkey_from_record(*record, path);
         if (entry_or_error.is_error()) {
@@ -485,6 +622,8 @@ ErrorOr<Vector<PasskeyEntry>> OpenBaoStore::list_passkeys()
         }
         out.append(entry_or_error.release_value());
     }
+    caches().passkeys = out;
+    caches().passkeys_at = MonotonicTime::now();
     return out;
 }
 
@@ -498,6 +637,15 @@ ErrorOr<void> OpenBaoStore::delete_passkey(ByteString const& rp_id, ByteString c
             return Error::from_string_literal("Passkey rpId mismatch");
     }
     return delete_kv_record(config, config.passkeys_prefix, credential_id_b64);
+}
+
+void OpenBaoStore::invalidate_cache()
+{
+    caches().passwords.clear();
+    caches().passwords_at.clear();
+    caches().passkeys.clear();
+    caches().passkeys_at.clear();
+    caches().records.clear();
 }
 
 }

@@ -7,6 +7,8 @@
 #include <LibWeb/CredentialManagement/OpenBaoStore.h>
 #include <UI/Qt/PasswordManagerDialog.h>
 
+#include <QApplication>
+#include <QClipboard>
 #include <QHBoxLayout>
 #include <QHeaderView>
 #include <QItemSelectionModel>
@@ -32,6 +34,8 @@ QString error_to_qstring(Error const& error)
     return QString::fromUtf8(view.characters_without_null_termination(), static_cast<int>(view.length()));
 }
 
+constexpr int password_role = Qt::UserRole;
+
 }
 
 namespace Ladybird {
@@ -40,7 +44,7 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
     : QDialog(parent)
 {
     setWindowTitle("Password Manager");
-    setMinimumSize(640, 420);
+    setMinimumSize(720, 420);
 
     auto* root = new QVBoxLayout(this);
     auto* tabs = new QTabWidget(this);
@@ -53,6 +57,7 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
     m_table->setHorizontalHeaderLabels({ "Origin", "Username", "Password" });
     m_table->horizontalHeader()->setStretchLastSection(true);
     m_table->setSelectionBehavior(QAbstractItemView::SelectRows);
+    m_table->setSelectionMode(QAbstractItemView::SingleSelection);
     m_table->setEditTriggers(QAbstractItemView::NoEditTriggers);
     passwords_layout->addWidget(m_table);
 
@@ -71,9 +76,11 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
 
     auto* buttons = new QHBoxLayout();
     auto* add_btn = new QPushButton("Add / Update", passwords_page);
+    auto* copy_btn = new QPushButton("Copy password", passwords_page);
     auto* remove_btn = new QPushButton("Delete selected", passwords_page);
     auto* refresh_btn = new QPushButton("Refresh", passwords_page);
     buttons->addWidget(add_btn);
+    buttons->addWidget(copy_btn);
     buttons->addWidget(remove_btn);
     buttons->addStretch();
     buttons->addWidget(refresh_btn);
@@ -83,9 +90,10 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
     auto* passkeys_layout = new QVBoxLayout(passkeys_page);
     passkeys_layout->addWidget(new QLabel(
         "Passkeys are stored in OpenBao KV v2 "
-        "(secret/data/passkeys/<credentialId> by default). "
-        "Create/get them via navigator.credentials on sites like webauthn.io. "
-        "Configure BAO_ADDR and OPENBAO_TOKEN (same layout as openbao-passkeys).",
+        "(secret/data/passkeys/<credentialId> by default), including "
+        "privateKeyJwk for openbao-passkeys interop. "
+        "Create/get them via navigator.credentials. "
+        "Configure BAO_ADDR and OPENBAO_TOKEN.",
         passkeys_page));
     passkeys_layout->addStretch();
 
@@ -93,9 +101,17 @@ PasswordManagerDialog::PasswordManagerDialog(QWidget* parent)
     tabs->addTab(passkeys_page, "Passkeys");
 
     connect(add_btn, &QPushButton::clicked, this, &PasswordManagerDialog::add_password);
+    connect(copy_btn, &QPushButton::clicked, this, &PasswordManagerDialog::copy_selected_password);
     connect(remove_btn, &QPushButton::clicked, this, &PasswordManagerDialog::remove_selected);
-    connect(refresh_btn, &QPushButton::clicked, this, &PasswordManagerDialog::refresh);
+    connect(refresh_btn, &QPushButton::clicked, this, [this] {
+        Web::CredentialManagement::OpenBaoStore::invalidate_cache();
+        refresh();
+    });
+    connect(m_table, &QTableWidget::itemDoubleClicked, this, [this](QTableWidgetItem*) {
+        copy_selected_password();
+    });
 
+    // Prefer in-process cache; Refresh button forces a refetch.
     refresh();
 }
 
@@ -114,7 +130,10 @@ void PasswordManagerDialog::refresh()
         m_table->insertRow(row);
         m_table->setItem(row, 0, new QTableWidgetItem(QString::fromUtf8(entry.origin.characters())));
         m_table->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(entry.username.characters())));
-        m_table->setItem(row, 2, new QTableWidgetItem(QString::fromUtf8(entry.password.characters())));
+        auto* password_item = new QTableWidgetItem(QStringLiteral("••••••••"));
+        password_item->setData(password_role, QString::fromUtf8(entry.password.characters()));
+        password_item->setToolTip(QStringLiteral("Double-click row or use Copy password"));
+        m_table->setItem(row, 2, password_item);
     }
 }
 
@@ -136,7 +155,43 @@ void PasswordManagerDialog::add_password()
         return;
     }
     m_password->clear();
-    refresh();
+    // store_password already invalidated list caches; reload without forcing a full record wipe.
+    m_table->setRowCount(0);
+    auto listed = Web::CredentialManagement::OpenBaoStore::list_passwords();
+    if (listed.is_error()) {
+        QMessageBox::warning(this, "OpenBao", error_to_qstring(listed.error()));
+        return;
+    }
+    for (auto const& entry : listed.value()) {
+        int row = m_table->rowCount();
+        m_table->insertRow(row);
+        m_table->setItem(row, 0, new QTableWidgetItem(QString::fromUtf8(entry.origin.characters())));
+        m_table->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(entry.username.characters())));
+        auto* password_item = new QTableWidgetItem(QStringLiteral("••••••••"));
+        password_item->setData(password_role, QString::fromUtf8(entry.password.characters()));
+        m_table->setItem(row, 2, password_item);
+    }
+}
+
+void PasswordManagerDialog::copy_selected_password()
+{
+    auto rows = m_table->selectionModel()->selectedRows();
+    if (rows.isEmpty()) {
+        QMessageBox::information(this, "Password Manager", "Select a password row to copy.");
+        return;
+    }
+    int row = rows.first().row();
+    auto* item = m_table->item(row, 2);
+    if (!item) {
+        QMessageBox::warning(this, "Password Manager", "No password on selected row.");
+        return;
+    }
+    auto password = item->data(password_role).toString();
+    if (password.isEmpty()) {
+        QMessageBox::warning(this, "Password Manager", "Password unavailable.");
+        return;
+    }
+    QApplication::clipboard()->setText(password);
 }
 
 void PasswordManagerDialog::remove_selected()

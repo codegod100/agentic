@@ -1,5 +1,5 @@
 /*
- * Experimental password manager dialog (GNOME Keyring backed).
+ * Experimental password manager dialog (OpenBao KV backed).
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
@@ -21,6 +21,7 @@ private slots:
     void refresh();
     void add_password();
     void remove_selected();
+    void copy_selected_password();
 
 private:
     QTableWidget* m_table { nullptr };
