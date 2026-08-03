@@ -10,17 +10,18 @@
 #include <AK/Error.h>
 #include <AK/Optional.h>
 #include <AK/Vector.h>
+#include <LibWeb/Export.h>
 
 namespace Web::CredentialManagement {
 
-struct KeyringPasswordEntry {
+struct WEB_API KeyringPasswordEntry {
     ByteString origin;
     ByteString username;
     ByteString password;
     ByteString item_path; // libsecret object path / label helper
 };
 
-struct KeyringPasskeyEntry {
+struct WEB_API KeyringPasskeyEntry {
     ByteString rp_id;
     ByteString credential_id_b64;
     ByteBuffer user_handle;
@@ -30,7 +31,8 @@ struct KeyringPasskeyEntry {
 };
 
 // Thin Secret Service wrapper. Requires a running session keyring and D-Bus.
-class GnomeKeyringStore {
+// WEB_API: ladybird UI (PasswordManagerDialog) links these across the LibWeb DSO.
+class WEB_API GnomeKeyringStore {
 public:
     static ErrorOr<void> store_password(ByteString const& origin, ByteString const& username, ByteString const& password);
     static ErrorOr<Optional<KeyringPasswordEntry>> find_password(ByteString const& origin, Optional<ByteString> const& username = {});
