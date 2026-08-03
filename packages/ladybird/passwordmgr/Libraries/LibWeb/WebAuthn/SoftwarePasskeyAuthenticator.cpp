@@ -284,7 +284,8 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
         private_key_bytes = move(entry.private_key_bytes);
         sign_count = entry.sign_count + 1;
         entry.sign_count = sign_count;
-        entry.credential_id_b64 = ByteString { TRY(lift_string(realm, encode_base64url(credential_id, AK::OmitPadding::Yes))).bytes() };
+        auto refreshed_id_b64 = TRY(lift_string(realm, encode_base64url(credential_id, AK::OmitPadding::Yes)));
+        entry.credential_id_b64 = ByteString { refreshed_id_b64.bytes() };
         (void)CredentialManagement::GnomeKeyringStore::store_passkey(entry);
     } else {
         StoredPasskey* match = nullptr;
