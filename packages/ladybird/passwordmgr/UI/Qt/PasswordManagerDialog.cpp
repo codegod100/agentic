@@ -155,22 +155,7 @@ void PasswordManagerDialog::add_password()
         return;
     }
     m_password->clear();
-    // store_password already invalidated list caches; reload without forcing a full record wipe.
-    m_table->setRowCount(0);
-    auto listed = Web::CredentialManagement::OpenBaoStore::list_passwords();
-    if (listed.is_error()) {
-        QMessageBox::warning(this, "OpenBao", error_to_qstring(listed.error()));
-        return;
-    }
-    for (auto const& entry : listed.value()) {
-        int row = m_table->rowCount();
-        m_table->insertRow(row);
-        m_table->setItem(row, 0, new QTableWidgetItem(QString::fromUtf8(entry.origin.characters())));
-        m_table->setItem(row, 1, new QTableWidgetItem(QString::fromUtf8(entry.username.characters())));
-        auto* password_item = new QTableWidgetItem(QStringLiteral("••••••••"));
-        password_item->setData(password_role, QString::fromUtf8(entry.password.characters()));
-        m_table->setItem(row, 2, password_item);
-    }
+    refresh();
 }
 
 void PasswordManagerDialog::copy_selected_password()

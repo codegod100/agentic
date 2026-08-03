@@ -284,12 +284,12 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
         auto entry = openbao.value().release_value();
         auto decoded_id = TRY(lift(realm, decode_base64url(entry.credential_id_b64)));
         credential_id = move(decoded_id);
-        user_handle = move(entry.user_handle);
-        private_key_bytes = move(entry.private_key_bytes);
+        // Copy before persisting signCount — moving would store empty key material
+        // and wipe OpenBao secrets (also breaks privateKeyJwk regeneration).
+        user_handle = MUST(ByteBuffer::copy(entry.user_handle));
+        private_key_bytes = MUST(ByteBuffer::copy(entry.private_key_bytes));
         sign_count = entry.sign_count + 1;
         entry.sign_count = sign_count;
-        auto refreshed_id_b64 = TRY(lift_string(realm, encode_base64url(credential_id, AK::OmitPadding::Yes)));
-        entry.credential_id_b64 = to_byte_string(refreshed_id_b64);
         if (auto stored = CredentialManagement::OpenBaoStore::store_passkey(entry); stored.is_error())
             dbgln("OpenBao passkey signCount update failed: {}", stored.error());
     } else {

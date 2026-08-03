@@ -366,7 +366,7 @@ static ErrorOr<ByteBuffer> pad_or_trim_scalar_32(ByteBuffer bytes)
             ++start;
         if (bytes.size() - start != 32)
             return Error::from_string_literal("Invalid P-256 private scalar length");
-        return TRY(ByteBuffer::copy(bytes.bytes().slice(start, 32)));
+        return TRY(bytes.slice(start, 32));
     }
     auto out = TRY(ByteBuffer::create_zeroed(32));
     out.overwrite(32 - bytes.size(), bytes.data(), bytes.size());
@@ -439,11 +439,11 @@ static ErrorOr<PasskeyEntry> passkey_from_record(JsonObject const& record, ByteS
     auto key_b64 = string_field(record, "privateKeyBytes"sv);
     if (key_b64.is_empty())
         key_b64 = string_field(record, "privateKey"sv);
-    if (!key_b64.is_empty()) {
-        private_key_bytes = TRY(pad_or_trim_scalar_32(TRY(decode_b64_flexible(key_b64))));
-    } else if (auto jwk = record.get_object("privateKeyJwk"sv); jwk.has_value()) {
-        // openbao-passkeys Chrome extension format.
+    // Prefer JWK when present — empty privateKeyBytes can be left behind by older bugs.
+    if (auto jwk = record.get_object("privateKeyJwk"sv); jwk.has_value() && jwk->has("d"sv)) {
         private_key_bytes = TRY(private_key_bytes_from_jwk(*jwk));
+    } else if (!key_b64.is_empty()) {
+        private_key_bytes = TRY(pad_or_trim_scalar_32(TRY(decode_b64_flexible(key_b64))));
     } else {
         return Error::from_string_literal("Passkey missing privateKeyBytes/privateKeyJwk");
     }
@@ -552,9 +552,23 @@ ErrorOr<void> OpenBaoStore::delete_password(ByteString const& origin, ByteString
 
 ErrorOr<void> OpenBaoStore::store_passkey(PasskeyEntry const& entry)
 {
+    if (entry.private_key_bytes.is_empty())
+        return Error::from_string_literal("Refusing to store passkey with empty private key");
+
     auto config = TRY(load_config());
     auto user_b64 = TRY(encode_base64url(entry.user_handle, AK::OmitPadding::Yes));
     auto scalar_bytes = TRY(pad_or_trim_scalar_32(TRY(ByteBuffer::copy(entry.private_key_bytes))));
+    // Reject the all-zero scalar (point at infinity) — usually means a move-after-use bug.
+    bool all_zero = true;
+    for (auto byte : scalar_bytes.bytes()) {
+        if (byte != 0) {
+            all_zero = false;
+            break;
+        }
+    }
+    if (all_zero)
+        return Error::from_string_literal("Refusing to store all-zero P-256 private key");
+
     auto key_b64 = TRY(encode_base64url(scalar_bytes, AK::OmitPadding::Yes));
     auto jwk = TRY(jwk_from_private_key_bytes(scalar_bytes));
 
@@ -569,6 +583,8 @@ ErrorOr<void> OpenBaoStore::store_passkey(PasskeyEntry const& entry)
             record.set("backupEligible"sv, JsonValue { *backup });
         if (auto backup = previous->get_bool("backupState"sv); backup.has_value())
             record.set("backupState"sv, JsonValue { *backup });
+        if (auto source = previous->get_string("source"sv); source.has_value() && *source != "ladybird"sv)
+            record.set("source"sv, JsonValue { *source });
     }
 
     record.set("credentialId"sv, JsonValue { json_string(entry.credential_id_b64) });
@@ -582,7 +598,8 @@ ErrorOr<void> OpenBaoStore::store_passkey(PasskeyEntry const& entry)
         MUST(transports.append(JsonValue { "internal"_string }));
         record.set("transports"sv, JsonValue { move(transports) });
     }
-    record.set("source"sv, JsonValue { "ladybird"_string });
+    if (!record.has("source"sv))
+        record.set("source"sv, JsonValue { "ladybird"_string });
     record.set("updatedAt"sv, JsonValue { json_string(iso8601_now()) });
     record.set("lastUsedAt"sv, JsonValue { json_string(iso8601_now()) });
     if (!record.has("createdAt"sv))
