@@ -14,18 +14,20 @@ namespace Web::CredentialManagement {
 
 static SecretSchema const& credential_schema()
 {
-    static SecretSchema schema = {
-        "org.ladybird.ExperimentalCredential",
-        SECRET_SCHEMA_NONE,
-        {
-            { "kind", SECRET_SCHEMA_ATTRIBUTE_STRING },
-            { "origin", SECRET_SCHEMA_ATTRIBUTE_STRING },
-            { "username", SECRET_SCHEMA_ATTRIBUTE_STRING },
-            { "rp_id", SECRET_SCHEMA_ATTRIBUTE_STRING },
-            { "cred_id", SECRET_SCHEMA_ATTRIBUTE_STRING },
-            { nullptr, SECRET_SCHEMA_ATTRIBUTE_STRING },
-        },
-    };
+    // Zero-init reserved* fields (required under -Werror=missing-field-initializers).
+    static SecretSchema schema {};
+    static bool const initialized = [] {
+        schema.name = "org.ladybird.ExperimentalCredential";
+        schema.flags = SECRET_SCHEMA_NONE;
+        schema.attributes[0] = { "kind", SECRET_SCHEMA_ATTRIBUTE_STRING };
+        schema.attributes[1] = { "origin", SECRET_SCHEMA_ATTRIBUTE_STRING };
+        schema.attributes[2] = { "username", SECRET_SCHEMA_ATTRIBUTE_STRING };
+        schema.attributes[3] = { "rp_id", SECRET_SCHEMA_ATTRIBUTE_STRING };
+        schema.attributes[4] = { "cred_id", SECRET_SCHEMA_ATTRIBUTE_STRING };
+        schema.attributes[5] = { nullptr, SECRET_SCHEMA_ATTRIBUTE_STRING };
+        return true;
+    }();
+    (void)initialized;
     return schema;
 }
 
@@ -63,7 +65,7 @@ static ErrorOr<KeyringPasskeyEntry> decode_passkey_secret(ByteString const& rp_i
         if (!start.has_value())
             return {};
         auto from = *start + pattern.length();
-        auto end = secret.find("\"", from);
+        auto end = secret.find('"', from);
         if (!end.has_value())
             return {};
         return secret.substring(from, *end - from);
