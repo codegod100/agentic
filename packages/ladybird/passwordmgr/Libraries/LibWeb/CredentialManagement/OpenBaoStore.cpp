@@ -204,7 +204,7 @@ static ErrorOr<Vector<ByteString>> list_kv_keys(OpenBaoConfig const& config, Byt
     keys->for_each([&](JsonValue const& key_value) {
         if (!key_value.is_string())
             return;
-        auto key = ByteString { key_value.as_string().bytes() };
+        auto key = key_value.as_string().to_byte_string();
         if (key.ends_with('/'))
             key = key.substring(0, key.length() - 1);
         if (!key.is_empty())
@@ -235,7 +235,7 @@ static ErrorOr<void> put_kv_record(OpenBaoConfig const& config, ByteString const
 {
     JsonObject data_wrapper;
     data_wrapper.set("data"sv, JsonValue { move(record) });
-    auto body = ByteString { data_wrapper.serialized() };
+    auto body = data_wrapper.serialized().to_byte_string();
     auto response = TRY(http_request(config, "POST"sv, kv_data_path(config, prefix, id), body));
     return ensure_ok(response, "put");
 }
@@ -263,15 +263,14 @@ static ByteString host_from_origin(ByteString const& origin)
 
 static ByteString iso8601_now()
 {
-    auto formatted = MUST(UnixDateTime::now().to_string("%Y-%m-%dT%H:%M:%SZ"sv, UnixDateTime::LocalTime::No));
-    return ByteString { formatted };
+    return MUST(UnixDateTime::now().to_string("%Y-%m-%dT%H:%M:%SZ"sv, UnixDateTime::LocalTime::No)).to_byte_string();
 }
 
 static ByteString new_password_id()
 {
     auto bytes = MUST(ByteBuffer::create_uninitialized(16));
     fill_with_random(bytes);
-    return ByteString { MUST(encode_base64url(bytes, AK::OmitPadding::Yes)) };
+    return MUST(encode_base64url(bytes, AK::OmitPadding::Yes)).to_byte_string();
 }
 
 static String json_string(ByteString const& value)
