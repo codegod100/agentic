@@ -104,7 +104,8 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::store(Credential const& credentia
         auto result = store_password_in_keyring(realm, password_credential);
         if (result.is_error())
             return WebIDL::create_rejected_promise_from_exception(realm, result.release_error());
-        return WebIDL::create_resolved_promise(realm, JS::Value(const_cast<PasswordCredential&>(password_credential)));
+        // Platform objects must go through GC::Ref — JS::Value has no ctor from T&.
+        return WebIDL::create_resolved_promise(realm, JS::Value(GC::Ref { const_cast<PasswordCredential&>(password_credential) }));
     }
 
     return reject_not_implemented(realm, "store"_utf16);
