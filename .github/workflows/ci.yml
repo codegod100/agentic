@@ -1,3 +1,9 @@
+# Build all flake packages on nixbuild.net, then push to Cachix.
+# GHA runners only evaluate/orchestrate — no local compiles.
+#
+# Auth:
+#   GitHub secret NIXBUILD_TOKEN, or OPENBAO_TOKEN/BAO_TOKEN that can read
+#   secret/data/ai-api-keys → NIXBUILD_TOKEN (+ optional CACHIX_AUTH_TOKEN)
 name: CI
 
 on:
@@ -53,10 +59,7 @@ jobs:
     name: Build ${{ matrix.package }}
     needs: discover
     runs-on: ubuntu-latest
-    # Ladybird / Skia are long compiles; keep headroom for cold caches.
-    # With NIXBUILD_TOKEN (GitHub secret or OpenBao ai-api-keys), compiles
-    # offload to nixbuild.net (much faster).
-    timeout-minutes: 360
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       matrix:
@@ -86,18 +89,17 @@ jobs:
             fi
           fi
 
-          if [ -n "$nixbuild_token" ]; then
-            echo "::add-mask::${nixbuild_token}"
-            {
-              echo "nixbuild_token<<EOF"
-              echo "${nixbuild_token}"
-              echo "EOF"
-            } >> "$GITHUB_OUTPUT"
-            echo "has_nixbuild=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_nixbuild=false" >> "$GITHUB_OUTPUT"
-            echo "::warning::NIXBUILD_TOKEN not in GitHub secrets or OpenBao; building on the GitHub runner."
+          if [ -z "$nixbuild_token" ]; then
+            echo "::error::NIXBUILD_TOKEN is required (GitHub secret, or OPENBAO_TOKEN/BAO_TOKEN → secret/data/ai-api-keys). All compiles run on nixbuild.net."
+            exit 1
           fi
+
+          echo "::add-mask::${nixbuild_token}"
+          {
+            echo "nixbuild_token<<EOF"
+            echo "${nixbuild_token}"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
 
           if [ -n "$cachix_token" ]; then
             echo "::add-mask::${cachix_token}"
@@ -119,7 +121,6 @@ jobs:
             accept-flake-config = true
 
       - name: Setup nixbuild.net
-        if: steps.tokens.outputs.has_nixbuild == 'true'
         uses: nixbuild/nixbuild-action@v25
         with:
           nixbuild_token: ${{ steps.tokens.outputs.nixbuild_token }}
@@ -144,14 +145,12 @@ jobs:
             exit 1
           fi
 
-      - name: Build .#${{ matrix.package }} (nixbuild remote store)
-        if: steps.tokens.outputs.has_nixbuild == 'true'
+      - name: Build .#${{ matrix.package }} on nixbuild.net
         run: |
           set -euo pipefail
           pkg='${{ matrix.package }}'
           results="$(mktemp)"
-          # Remote-store build: schedule on nixbuild.net without shipping
-          # inputs through the GHA runner (much faster for large packages).
+          # Remote-store build: nixbuild.net compiles; runner only evaluates + copies.
           nix build --print-build-logs --json \
             --eval-store auto \
             --store ssh-ng://nixbuild \
@@ -163,13 +162,8 @@ jobs:
             echo "error: nix build produced no outputs for .#${pkg}" >&2
             exit 1
           fi
-          # Bring closure onto the runner so cachix-action can push it.
           nix copy --from ssh-ng://nixbuild --to auto "${paths[@]}"
           nix path-info -rS "${paths[@]}" | tail -n 20
-
-      - name: Build .#${{ matrix.package }}
-        if: steps.tokens.outputs.has_nixbuild != 'true'
-        run: nix build --no-link --print-build-logs ".#${{ matrix.package }}"
 
   # Single status gate for branch rules / auto-merge ("CI success").
   ci-success:
