@@ -15,7 +15,7 @@ packages/
 scripts/
   update-packages.sh   # version bump + hash/lock refresh
 .github/workflows/
-  ci.yml               # build on main / PRs; push to Cachix on merge
+  ci.yml               # build on nixbuild.net; push to Cachix on merge
   update-packages.yml  # weekly cron + manual dispatch
 ```
 
@@ -46,10 +46,11 @@ updates, also add `packages/<name>/upstream.json` (see below).
 
 ## Binary cache (Cachix)
 
-CI builds every package on merges to `main` and pushes results to the public
-[`codegod100`](https://app.cachix.org/cache/codegod100) Cachix cache. The flake
-advertises the cache via `nixConfig`; accept the substituter when prompted, or
-configure it once:
+CI compiles every package on [nixbuild.net](https://nixbuild.net) (GHA only
+evaluates/orchestrates), then pushes results to the public
+[`codegod100`](https://app.cachix.org/cache/codegod100) Cachix cache on merges
+to `main`. The flake advertises the cache via `nixConfig`; accept the
+substituter when prompted, or configure it once:
 
 ```bash
 # nix.conf / NixOS: trusted-substituters + trusted-public-keys
@@ -57,8 +58,12 @@ extra-substituters = https://codegod100.cachix.org
 extra-trusted-public-keys = codegod100.cachix.org-1:LZFL5VrR644WUjleS3bLbVeOdzlXqzKznQWvD5MVthA=
 ```
 
-CI needs a write token in the repo secret `CACHIX_AUTH_TOKEN` (Cachix → cache →
-Auth Tokens) so pushes from GitHub Actions succeed.
+CI secrets:
+- `NIXBUILD_TOKEN` (required) — remote builds on nixbuild.net
+- `CACHIX_AUTH_TOKEN` (required on `main`) — write token for Cachix pushes
+
+Both can instead be loaded from OpenBao `secret/data/ai-api-keys` when
+`OPENBAO_TOKEN` / `BAO_TOKEN` is set as a GitHub Actions secret.
 
 ## Usage
 
