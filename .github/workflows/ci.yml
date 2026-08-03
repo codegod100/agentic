@@ -54,7 +54,11 @@ jobs:
     needs: discover
     runs-on: ubuntu-latest
     # Ladybird / Skia are long compiles; keep headroom for cold caches.
+    # With NIXBUILD_TOKEN set, compiles offload to nixbuild.net (much faster).
     timeout-minutes: 360
+    env:
+      # Job-level env so steps can branch on token presence (secrets.* not allowed in if:).
+      NIXBUILD_TOKEN: ${{ secrets.NIXBUILD_TOKEN }}
     strategy:
       fail-fast: false
       matrix:
@@ -69,6 +73,13 @@ jobs:
           github_access_token: ${{ secrets.GITHUB_TOKEN }}
           extra_nix_config: |
             accept-flake-config = true
+
+      - name: Setup nixbuild.net
+        if: env.NIXBUILD_TOKEN != ''
+        uses: nixbuild/nixbuild-action@v25
+        with:
+          nixbuild_token: ${{ env.NIXBUILD_TOKEN }}
+          generate_summary_for: job
 
       - name: Setup Cachix
         uses: cachix/cachix-action@v17
@@ -89,8 +100,34 @@ jobs:
             exit 1
           fi
 
+      - name: Build .#${{ matrix.package }} (nixbuild remote store)
+        if: env.NIXBUILD_TOKEN != ''
+        run: |
+          set -euo pipefail
+          pkg='${{ matrix.package }}'
+          results="$(mktemp)"
+          # Remote-store build: schedule on nixbuild.net without shipping
+          # inputs through the GHA runner (much faster for large packages).
+          nix build --print-build-logs --json \
+            --eval-store auto \
+            --store ssh-ng://nixbuild \
+            --builders "" \
+            --max-jobs 2 \
+            ".#${pkg}" | tee "$results"
+          mapfile -t paths < <(jq -r '.[].outputs | to_entries[].value' "$results")
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "error: nix build produced no outputs for .#${pkg}" >&2
+            exit 1
+          fi
+          # Bring closure onto the runner so cachix-action can push it.
+          nix copy --from ssh-ng://nixbuild --to auto "${paths[@]}"
+          nix path-info -rS "${paths[@]}" | tail -n 20
+
       - name: Build .#${{ matrix.package }}
-        run: nix build --no-link --print-build-logs ".#${{ matrix.package }}"
+        if: env.NIXBUILD_TOKEN == ''
+        run: |
+          echo "::warning::NIXBUILD_TOKEN secret is not set; building on the GitHub runner (slow for ladybird/skia). Add a nixbuild.net auth token as repository secret NIXBUILD_TOKEN."
+          nix build --no-link --print-build-logs ".#${{ matrix.package }}"
 
   # Single status gate for branch rules / auto-merge ("CI success").
   ci-success:

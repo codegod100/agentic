@@ -1,0 +1,135 @@
+# Fast package builds via nixbuild.net (remote store), then push to Cachix.
+# Requires repository secret NIXBUILD_TOKEN (nixbuild.net auth token with
+# build:read/write + store:read/write). Create one with:
+#   ssh eu.nixbuild.net shell
+#   tokens create -p build:read -p build:write -p store:read -p store:write
+name: CI nixbuild
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: 'JSON array of package attrs to build (empty = ladybird+skia)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-nixbuild-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  discover:
+    name: Discover packages
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      packages: ${{ steps.list.outputs.packages }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: List package attrs
+        id: list
+        env:
+          MANUAL_PACKAGES: ${{ inputs.packages }}
+        run: |
+          set -euo pipefail
+          if [ -n "${MANUAL_PACKAGES}" ]; then
+            packages="$(jq -c . <<<"${MANUAL_PACKAGES}")"
+          else
+            # Default: the expensive packages that benefit most from nixbuild.
+            system="$(nix eval --raw --impure --expr 'builtins.currentSystem')"
+            all="$(
+              nix eval --json ".#packages.${system}" --apply 'builtins.attrNames' \
+                | jq -c '[.[] | select(. != "default" and . != "update")] | sort'
+            )"
+            packages="$(jq -c '[.[] | select(. == "ladybird" or . == "skia")]' <<<"$all")"
+            # If those attrs are missing (rename), fall back to full set.
+            if [ "$(jq 'length' <<<"$packages")" -eq 0 ]; then
+              packages="$all"
+            fi
+          fi
+          count="$(jq 'length' <<<"$packages")"
+          if [ "$count" -eq 0 ]; then
+            echo "error: no packages selected" >&2
+            exit 1
+          fi
+          echo "Building ${count} package(s) on nixbuild.net: $(jq -r 'join(", ")' <<<"$packages")"
+          echo "packages=${packages}" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: nixbuild ${{ matrix.package }}
+    needs: discover
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      NIXBUILD_TOKEN: ${{ secrets.NIXBUILD_TOKEN }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ${{ fromJSON(needs.discover.outputs.packages) }}
+    steps:
+      - name: Require NIXBUILD_TOKEN
+        run: |
+          if [ -z "${NIXBUILD_TOKEN}" ]; then
+            echo "::error::Repository secret NIXBUILD_TOKEN is not set. Create a nixbuild.net auth token (build+store read/write) and add it under Settings → Secrets → Actions."
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: cachix/install-nix-action@v31
+        with:
+          github_access_token: ${{ secrets.GITHUB_TOKEN }}
+          extra_nix_config: |
+            accept-flake-config = true
+
+      - name: Setup nixbuild.net
+        uses: nixbuild/nixbuild-action@v25
+        with:
+          nixbuild_token: ${{ env.NIXBUILD_TOKEN }}
+          generate_summary_for: job
+
+      - name: Setup Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: codegod100
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+          skipPush: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
+
+      - name: Build .#${{ matrix.package }} on nixbuild.net
+        run: |
+          set -euo pipefail
+          pkg='${{ matrix.package }}'
+          results="$(mktemp)"
+          nix build --print-build-logs --json \
+            --eval-store auto \
+            --store ssh-ng://nixbuild \
+            --builders "" \
+            --max-jobs 2 \
+            ".#${pkg}" | tee "$results"
+          mapfile -t paths < <(jq -r '.[].outputs | to_entries[].value' "$results")
+          if [ "${#paths[@]}" -eq 0 ]; then
+            echo "error: nix build produced no outputs for .#${pkg}" >&2
+            exit 1
+          fi
+          echo "Built paths:"
+          printf '  %s\n' "${paths[@]}"
+          nix copy --from ssh-ng://nixbuild --to auto "${paths[@]}"
+          nix path-info -rS "${paths[@]}" | tail -n 30
