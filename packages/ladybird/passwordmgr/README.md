@@ -8,6 +8,7 @@ Inspired by [openbao-passkeys](https://github.com/codegod100/openbao-passkeys): 
 
 - `OpenBaoStore` — sync libcurl client for OpenBao KV v2
 - CredMan hooks: `password` create / get / store + passkeys persisted to the same store
+- Form autofill into empty username/password `<input>`s + silent save on submit
 - Qt **Edit → Password Manager…** dialog to list / delete / manually add password entries
 
 ## Configuration
