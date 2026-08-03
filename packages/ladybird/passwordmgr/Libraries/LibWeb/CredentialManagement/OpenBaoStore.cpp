@@ -17,7 +17,6 @@
 #include <LibCore/Environment.h>
 #include <LibWeb/CredentialManagement/OpenBaoStore.h>
 #include <curl/curl.h>
-#include <initializer_list>
 
 namespace Web::CredentialManagement {
 
@@ -31,11 +30,24 @@ struct OpenBaoConfig {
     ByteString passwords_prefix;
 };
 
-static Optional<ByteString> env_first(initializer_list<StringView> names)
+static Optional<ByteString> env_get(StringView name)
 {
-    for (auto name : names) {
-        if (auto value = Core::Environment::get(name); value.has_value() && !value->is_empty())
-            return ByteString { *value };
+    if (auto value = Core::Environment::get(name); value.has_value() && !value->is_empty())
+        return ByteString { *value };
+    return {};
+}
+
+static Optional<ByteString> env_first(StringView a, StringView b = {}, StringView c = {})
+{
+    if (auto value = env_get(a); value.has_value())
+        return value;
+    if (!b.is_empty()) {
+        if (auto value = env_get(b); value.has_value())
+            return value;
+    }
+    if (!c.is_empty()) {
+        if (auto value = env_get(c); value.has_value())
+            return value;
     }
     return {};
 }
@@ -62,15 +74,15 @@ static ErrorOr<OpenBaoConfig> load_config()
 {
     OpenBaoConfig config;
     config.addr = trim_trailing_slashes(
-        env_first({ "BAO_ADDR"sv, "OPENBAO_ADDR"sv, "VAULT_ADDR"sv })
+        env_first("BAO_ADDR"sv, "OPENBAO_ADDR"sv, "VAULT_ADDR"sv)
             .value_or("http://127.0.0.1:8200"sv));
-    auto token = env_first({ "OPENBAO_TOKEN"sv, "BAO_TOKEN"sv, "VAULT_TOKEN"sv });
+    auto token = env_first("OPENBAO_TOKEN"sv, "BAO_TOKEN"sv, "VAULT_TOKEN"sv);
     if (!token.has_value())
         return Error::from_string_literal("OpenBao token missing (set OPENBAO_TOKEN / BAO_TOKEN)");
     config.token = *token;
-    config.kv_mount = clean_segment(env_first({ "OPENBAO_KV_MOUNT"sv }).value_or("secret"sv));
-    config.passkeys_prefix = clean_segment(env_first({ "OPENBAO_PASSKEYS_PREFIX"sv }).value_or("passkeys"sv));
-    config.passwords_prefix = clean_segment(env_first({ "OPENBAO_PASSWORDS_PREFIX"sv }).value_or("passwords"sv));
+    config.kv_mount = clean_segment(env_first("OPENBAO_KV_MOUNT"sv).value_or("secret"sv));
+    config.passkeys_prefix = clean_segment(env_first("OPENBAO_PASSKEYS_PREFIX"sv).value_or("passkeys"sv));
+    config.passwords_prefix = clean_segment(env_first("OPENBAO_PASSWORDS_PREFIX"sv).value_or("passwords"sv));
     if (config.kv_mount.is_empty() || config.passkeys_prefix.is_empty() || config.passwords_prefix.is_empty())
         return Error::from_string_literal("Invalid OpenBao path configuration");
     return config;
@@ -103,7 +115,7 @@ static size_t curl_write_callback(char* ptr, size_t size, size_t nmemb, void* us
     auto total = size * nmemb;
     StringBuilder builder;
     builder.append(*out);
-    builder.append({ ptr, total });
+    builder.append(StringView { ptr, total });
     *out = builder.to_byte_string();
     return total;
 }
@@ -192,7 +204,7 @@ static ErrorOr<Vector<ByteString>> list_kv_keys(OpenBaoConfig const& config, Byt
     keys->for_each([&](JsonValue const& key_value) {
         if (!key_value.is_string())
             return;
-        auto key = ByteString { key_value.as_string() };
+        auto key = ByteString { key_value.as_string().bytes() };
         if (key.ends_with('/'))
             key = key.substring(0, key.length() - 1);
         if (!key.is_empty())
@@ -270,7 +282,7 @@ static String json_string(ByteString const& value)
 static ByteString string_field(JsonObject const& object, StringView key)
 {
     if (auto value = object.get_string(key); value.has_value())
-        return ByteString { *value };
+        return value->to_byte_string();
     return {};
 }
 
