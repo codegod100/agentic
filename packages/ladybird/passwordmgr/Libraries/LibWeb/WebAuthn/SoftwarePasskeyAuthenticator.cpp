@@ -263,8 +263,10 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
 {
     auto& vm = realm.vm();
     auto origin = HTML::current_settings_object().origin();
+    dbgln("WebAuthn get: origin={}", origin.serialize());
 
     auto challenge = TRY(buffer_from_js(realm, TRY(public_key_options.get("challenge"_utf16_fly_string))));
+    dbgln("WebAuthn get: challenge_bytes={}", challenge.size());
 
     ByteString rp_id;
     auto rp_id_value = TRY(public_key_options.get("rpId"_utf16_fly_string));
@@ -276,6 +278,7 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
     } else {
         return WebIDL::NotAllowedError::create(realm, "Passkey RP ID missing"_utf16);
     }
+    dbgln("WebAuthn get: rpId={}", rp_id);
 
     ByteBuffer credential_id;
     ByteBuffer user_handle;
@@ -283,6 +286,7 @@ WebIDL::ExceptionOr<GC::Ref<PublicKeyCredential>> software_get_credential(JS::Re
     u32 sign_count = 0;
 
     auto openbao = CredentialManagement::OpenBaoStore::find_passkey(rp_id);
+    dbgln("WebAuthn get: openbao find error={} has={}", openbao.is_error(), !openbao.is_error() && openbao.value().has_value());
     if (!openbao.is_error() && openbao.value().has_value()) {
         auto entry = openbao.value().release_value();
         auto decoded_id = TRY(lift(realm, decode_base64url(entry.credential_id_b64)));

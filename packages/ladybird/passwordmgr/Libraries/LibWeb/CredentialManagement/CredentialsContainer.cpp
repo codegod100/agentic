@@ -5,6 +5,7 @@
  * SPDX-License-Identifier: BSD-2-Clause
  */
 
+#include <AK/Format.h>
 #include <AK/Utf16String.h>
 #include <LibJS/Runtime/ValueInlines.h>
 #include <LibWeb/CredentialManagement/CredentialsContainer.h>
@@ -76,10 +77,15 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::get(Bindings::CredentialRequestOp
 {
     auto& realm = *vm().current_realm();
 
+    dbgln("CredMan get: public_key={} password={}", options.public_key.has_value(), options.password);
     if (options.public_key.has_value() && options.public_key->is_object()) {
+        dbgln("CredMan get: dispatching software_get_credential");
         auto result = WebAuthn::software_get_credential(realm, options.public_key->as_object());
-        if (result.is_error())
+        if (result.is_error()) {
+            dbgln("CredMan get: software_get_credential failed");
             return WebIDL::create_rejected_promise_from_exception(realm, result.release_error());
+        }
+        dbgln("CredMan get: software_get_credential ok");
         return WebIDL::create_resolved_promise(realm, JS::Value(result.release_value()));
     }
 
@@ -91,6 +97,7 @@ GC::Ref<WebIDL::Promise> CredentialsContainer::get(Bindings::CredentialRequestOp
         return WebIDL::create_resolved_promise(realm, JS::Value(result.release_value()));
     }
 
+    dbgln("CredMan get: not implemented for these options");
     return reject_not_implemented(realm, "get"_utf16);
 }
 
