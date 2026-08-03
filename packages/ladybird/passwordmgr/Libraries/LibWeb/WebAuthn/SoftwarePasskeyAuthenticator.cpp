@@ -134,7 +134,10 @@ static WebIDL::ExceptionOr<ByteBuffer> make_authenticator_data(JS::Realm& realm,
     if (auth_data.try_append(rp_hash).is_error())
         return WebIDL::UnknownError::create(realm, "OOM"_utf16);
 
-    u8 flags = 0x01 | 0x04; // UP | UV
+    // Match openbao-passkeys / synced passkeys: UP | UV | BE | BS.
+    // Pocket ID (go-webauthn) rejects assertions that omit BE/BS when the
+    // credential was registered as a multi-device / backup-eligible passkey.
+    u8 flags = 0x01 | 0x04 | 0x08 | 0x10; // UP | UV | BE | BS
     if (include_attested)
         flags |= 0x40; // AT
     if (auth_data.try_append(flags).is_error())
