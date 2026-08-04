@@ -15,7 +15,7 @@ packages/
 scripts/
   update-packages.sh   # version bump + hash/lock refresh
 .github/workflows/
-  ci.yml               # build on main / PRs; push to Cachix on merge
+  ci.yml               # build on nixbuild.net; push to Cachix on merge
   update-packages.yml  # weekly cron + manual dispatch
 ```
 
@@ -43,13 +43,16 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `rsvelte` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/fmt`, `@rsvelte/lint`, `@rsvelte/svelte-check`) | `npm install -g @rsvelte/fmt @rsvelte/lint @rsvelte/svelte-check` |
 | `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
 | `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
+| `skia` | [google/skia](https://skia.googlesource.com/skia) (Chrome m148 pin) | build from source (Ladybird dep; nixpkgs Skia is older) |
+| `ladybird` | [LadybirdBrowser/ladybird](https://github.com/LadybirdBrowser/ladybird) | [build docs](https://github.com/LadybirdBrowser/ladybird/blob/master/Documentation/BuildInstructionsLinux.md) |
 
 ## Binary cache (Cachix)
 
-CI builds every package on merges to `main` and pushes results to the public
-[`codegod100`](https://app.cachix.org/cache/codegod100) Cachix cache. The flake
-advertises the cache via `nixConfig`; accept the substituter when prompted, or
-configure it once:
+CI compiles every package on [nixbuild.net](https://nixbuild.net) (GHA only
+evaluates/orchestrates), then pushes results to the public
+[`codegod100`](https://app.cachix.org/cache/codegod100) Cachix cache on merges
+to `main`. The flake advertises the cache via `nixConfig`; accept the
+substituter when prompted, or configure it once:
 
 ```bash
 # nix.conf / NixOS: trusted-substituters + trusted-public-keys
@@ -57,8 +60,12 @@ extra-substituters = https://codegod100.cachix.org
 extra-trusted-public-keys = codegod100.cachix.org-1:LZFL5VrR644WUjleS3bLbVeOdzlXqzKznQWvD5MVthA=
 ```
 
-CI needs a write token in the repo secret `CACHIX_AUTH_TOKEN` (Cachix → cache →
-Auth Tokens) so pushes from GitHub Actions succeed.
+CI secrets:
+- `NIXBUILD_TOKEN` (required) — remote builds on nixbuild.net
+- `CACHIX_AUTH_TOKEN` (required on `main`) — write token for Cachix pushes
+
+Both can instead be loaded from OpenBao `secret/data/ai-api-keys` when
+`OPENBAO_TOKEN` / `BAO_TOKEN` is set as a GitHub Actions secret.
 
 ## Usage
 
@@ -80,6 +87,8 @@ nix build .#eyg           # linux + darwin (all four systems)
 nix build .#rsvelte       # linux + darwin; bins: rsvelte-fmt, rsvelte-lint, rsvelte-check
 nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#loreserver    # same platforms as lore
+nix build .#skia          # linux only (Chrome m148; Ladybird dep)
+nix build .#ladybird      # linux (+ aarch64-darwin attr, marked broken)
 
 # run without installing
 nix run .#vit -- --help
@@ -102,6 +111,7 @@ nix run .#rsvelte-lint -- --version
 nix run .#rsvelte-check -- --help   # apps from the rsvelte package
 nix run .#lore -- --version
 nix run .#loreserver -- --version
+nix run .#ladybird        # linux; opens the Ladybird browser
 
 # install into your profile
 nix profile install .#vit
@@ -120,7 +130,48 @@ nix profile install .#eyg
 nix profile install .#rsvelte       # installs fmt + lint + check
 nix profile install .#lore
 nix profile install .#loreserver
+nix profile install .#ladybird
 ```
+
+### Develop shell (`nix develop`) — incremental Ladybird
+
+Any package attr is developable. For Ladybird, use the helper so the cmake/ninja
+tree is kept under `outputs/build` and rebuilds are incremental:
+
+```bash
+# First run: unpack + configure + full build + install (slow, once).
+./scripts/ladybird-devshell-build.sh
+
+# Patch sources in the writable tree, then rebuild only what changed:
+#   outputs/build/source/        ← edit / patch here
+#   outputs/build/source/build/  ← ninja object cache (kept by default)
+$EDITOR outputs/build/source/Libraries/LibWeb/...
+./scripts/ladybird-devshell-build.sh              # incremental ninja
+./scripts/ladybird-devshell-build.sh --install    # ninja + cmake --install
+./scripts/ladybird-devshell-build.sh -- LibWeb    # ninja one target
+
+# Interactive shell already cd'd into the build dir:
+./scripts/ladybird-devshell-build.sh --shell
+
+# Full wipe (only when you really want a cold compile):
+./scripts/ladybird-devshell-build.sh --clean
+```
+
+Manual equivalent inside `nix develop .#ladybird` (use `bash --norc` so host
+rustup under `/usr/local/cargo` does not win; do not enable `set -u` — nixpkgs
+`cargoSetupHook` probes `$cargoVendorDir` without a default):
+
+```bash
+unset CARGO_HOME RUSTUP_HOME
+source "$stdenv/setup"
+export NIX_ENFORCE_PURITY=0   # else gcc-wrapper drops -I under the checkout
+cd outputs/build/source/build
+ninja -j"$NIX_BUILD_CORES"
+```
+
+Prefer `nix build .#ladybird` for a store/Cachix build. Cold Ladybird compiles
+are multi-hour on small machines; Skia is a separate long build and is usually
+fetched from Cachix once CI has pushed it.
 
 ## Updating packages
 

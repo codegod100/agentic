@@ -46,6 +46,12 @@
   vulkan-headers,
   vulkan-loader,
   vulkan-memory-allocator,
+  wrapGAppsHook3,
+  gtk3,
+  gsettings-desktop-schemas,
+  # Experimental in-tree software passkeys (navigator.credentials + ES256)
+  # with OpenBao KV storage (inspired by openbao-passkeys).
+  enableSoftwarePasskeys ? true,
 }:
 
 let
@@ -101,6 +107,12 @@ stdenv.mkDerivation (finalAttrs: {
     substituteInPlace Meta/CMake/lagom_install_options.cmake \
       --replace-fail "\''${CMAKE_INSTALL_BINDIR}" "bin" \
       --replace-fail "\''${CMAKE_INSTALL_LIBDIR}" "lib"
+  ''
+  + lib.optionalString enableSoftwarePasskeys ''
+    # Reference whole overlay dirs so Libraries/* are in the store path
+    # (a single-file apply-overlay.sh path would leave dirname=/nix/store).
+    bash ${./webauthn}/apply-overlay.sh "$PWD"
+    bash ${./passwordmgr}/apply-overlay.sh "$PWD"
   '';
 
   preConfigure = ''
@@ -139,7 +151,12 @@ stdenv.mkDerivation (finalAttrs: {
   ]
   ++ lib.optionals stdenv.hostPlatform.isLinux [
     glslang
+    # Qt may open GTK file dialogs; schemas must land on XDG_DATA_DIRS.
+    wrapGAppsHook3
   ];
+
+  # Let wrapQtAppsHook own wrapping; merge GLib/GTK schema env into it.
+  dontWrapGApps = true;
 
   buildInputs = [
     curlFull
@@ -174,7 +191,13 @@ stdenv.mkDerivation (finalAttrs: {
     vulkan-headers
     vulkan-loader
     vulkan-memory-allocator
+    gtk3
+    gsettings-desktop-schemas
   ];
+
+  preFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
+    qtWrapperArgs+=("''${gappsWrapperArgs[@]}")
+  '';
 
   cmakeFlags = [
     (lib.cmakeBool "ENABLE_LTO_FOR_RELEASE" false)
@@ -209,25 +232,17 @@ stdenv.mkDerivation (finalAttrs: {
   # Ladybird's Compositor vkCreateInstance returns VK_ERROR_INCOMPATIBLE_DRIVER
   # (-9) and the process dies instead of falling back. Pin hasvk on those GPUs
   # unless the user already set VK_ICD_FILENAMES / VK_DRIVER_FILES.
-  qtWrapperArgs = lib.optionals stdenv.hostPlatform.isLinux [
-    "--run"
-    ''
-      if [ -z "''${VK_ICD_FILENAMES:-}" ] && [ -z "''${VK_DRIVER_FILES:-}" ]; then
-        _hasvk="/run/opengl-driver/share/vulkan/icd.d/intel_hasvk_icd.x86_64.json"
-        if [ -r "$_hasvk" ]; then
-          for _uevent in /sys/class/drm/card*/device/uevent; do
-            [ -r "$_uevent" ] || continue
-            # Mesa hasvk Gen7.5 (Haswell) PCI IDs.
-            if grep -qE 'PCI_ID=8086:(0402|0406|040A|040B|040E|0412|0416|041A|041B|041E|0A02|0A06|0A0A|0A0B|0A0E|0A12|0A16|0A1A|0A1B|0A1E|0A22|0A26|0A2A|0A2B|0A2E|0D02|0D06|0D0A|0D0B|0D0E|0D12|0D16|0D1A|0D1B|0D1E|0D22|0D26|0D2A|0D2B|0D2E)' "$_uevent"; then
-              export VK_ICD_FILENAMES="$_hasvk"
-              export VK_DRIVER_FILES="$_hasvk"
-              break
-            fi
-          done
-        fi
-      fi
-    ''
-  ];
+  #
+  # Cannot use qtWrapperArgs --run: wrapQtAppsHook's makeWrapper is
+  # makeBinaryWrapper, which rejects --run. Outer shell wrapper instead.
+  postFixup = lib.optionalString stdenv.hostPlatform.isLinux ''
+    if [ -x "$out/bin/Ladybird" ]; then
+      mv "$out/bin/Ladybird" "$out/bin/.Ladybird-qtwrapped"
+      substitute ${./hasvk-wrapper.sh} "$out/bin/Ladybird" \
+        --subst-var-by ladybird "$out/bin/.Ladybird-qtwrapped"
+      chmod +x "$out/bin/Ladybird"
+    fi
+  '';
 
   meta = {
     description = "Browser using the SerenityOS LibWeb engine with a Qt or Cocoa GUI";
