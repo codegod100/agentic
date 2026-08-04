@@ -1,6 +1,10 @@
 #!/bin/sh
 # Pin Mesa hasvk on Intel Haswell when Vulkan ICD is unset.
 # @ladybird@ is substituted at install time to the Qt-wrapped binary.
+#
+# POSIX sh only: do not use bash `exec -a` (dash /bin/sh rejects it with
+# "exec: -a: not found"). argv0 from the wrapper path is not required for
+# Ladybird; forwarding to the Qt-wrapped binary is enough.
 if [ -z "${VK_ICD_FILENAMES:-}" ] && [ -z "${VK_DRIVER_FILES:-}" ]; then
   _hasvk="/run/opengl-driver/share/vulkan/icd.d/intel_hasvk_icd.x86_64.json"
   if [ -r "$_hasvk" ]; then
@@ -15,4 +19,4 @@ if [ -z "${VK_ICD_FILENAMES:-}" ] && [ -z "${VK_DRIVER_FILES:-}" ]; then
     done
   fi
 fi
-exec -a "$0" "@ladybird@" "$@"
+exec "@ladybird@" "$@"
