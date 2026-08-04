@@ -80,6 +80,12 @@ stdenv.mkDerivation (finalAttrs: {
     hash = "sha256-7SSMHwXmTHxXx5CxDxbQDzgDADZhFRGSdoAOXZgfOkM=";
   };
 
+  patches = [
+    # Keep writing-mode-positive scrollable overflow for flex-direction: *-reverse
+    # (fixes unscrollable deer.social / React Native Web column-reverse shells).
+    ./patches/0001-fix-flex-direction-reverse-scrollable-overflow.patch
+  ];
+
   cargoDeps = rustPlatform.fetchCargoVendor {
     inherit (finalAttrs) src;
     hash = "sha256-2asgV8IT3QKXvPezmP7VP+idLGDR/jfUa38/mErm7VI=";
