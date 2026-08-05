@@ -52,6 +52,9 @@
   # Experimental in-tree software passkeys (navigator.credentials + ES256)
   # with OpenBao KV storage (inspired by openbao-passkeys).
   enableSoftwarePasskeys ? true,
+  # Experimental MP4/fMP4 MSE for YouTube live (outline only; see mp4mse/README.md).
+  # Keep false until M0+ overlay sources exist — apply-overlay.sh will fail otherwise.
+  enableMp4Mse ? false,
 }:
 
 let
@@ -113,6 +116,9 @@ stdenv.mkDerivation (finalAttrs: {
     # (a single-file apply-overlay.sh path would leave dirname=/nix/store).
     bash ${./webauthn}/apply-overlay.sh "$PWD"
     bash ${./passwordmgr}/apply-overlay.sh "$PWD"
+  ''
+  + lib.optionalString enableMp4Mse ''
+    bash ${./mp4mse}/apply-overlay.sh "$PWD"
   '';
 
   preConfigure = ''
