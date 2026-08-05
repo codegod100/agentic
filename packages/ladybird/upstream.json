@@ -1,6 +1,0 @@
-{
-  "type": "github-unstable",
-  "github": "LadybirdBrowser/ladybird",
-  "branch": "master",
-  "description": "Ladybird web browser (Qt GUI on Linux). No release tags yet; track master tip. After bumping rev, refresh cargoDeps hash. Uses flake skia (m148)."
-}

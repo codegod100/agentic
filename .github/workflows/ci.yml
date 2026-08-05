@@ -129,7 +129,7 @@ jobs:
           name: codegod100
           authToken: ${{ steps.tokens.outputs.cachix_auth_token || secrets.CACHIX_AUTH_TOKEN }}
           # Pull always. Push from main and same-repo PRs (so matrix jobs can
-          # share e.g. skia → ladybird). Fork PRs stay pull-only.
+          # share intermediate deps). Fork PRs stay pull-only.
           skipPush: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository }}
 
       - name: Setup nixbuild.net
