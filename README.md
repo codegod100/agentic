@@ -125,9 +125,9 @@ nix profile install .#lore
 nix profile install .#loreserver
 ```
 
-Ladybird (and its Chrome m148 Skia pin) live in a separate flake:
-[`codegod100/manbird`](https://github.com/codegod100/manbird)
-(`nix run github:codegod100/manbird`).
+Ladybird lives in the [`codegod100/ladybird`](https://github.com/codegod100/ladybird)
+fork (Nix flake + in-tree OpenBao passkeys/passwords):
+`nix run github:codegod100/ladybird`.
 
 ## Updating packages
 
