@@ -558,7 +558,7 @@ By hand:
 
 `prime-agent` ships a prebuilt npm pack on GitHub Releases (`prime-agent-X.Y.Z.tgz`).
 The flake wraps the CLI with `PRIME_AGENT_KERNEL_PYTHON` pointing at a Nix-built
-Python 3.11 env (ipykernel, `dist/prime-agent-runtime` from the same pack, dill,
+Python 3.12 env (ipykernel, `dist/prime-agent-runtime` from the same pack, dill,
 and upstream's default RLM packages) so the IPython kernel does not need `uv` or
 network on first use. Prefer the updater:
 
