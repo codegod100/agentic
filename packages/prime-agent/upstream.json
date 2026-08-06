@@ -1,0 +1,7 @@
+{
+  "type": "github-release-npm",
+  "github": "PrimeIntellect-ai/prime-agent",
+  "tag_prefix": "v",
+  "asset": "prime-agent-{version}.tgz",
+  "description": "Prebuilt prime-agent npm pack from GitHub Releases. Regenerates package-lock.json (sibling @earendil-works/* URL deps stay on upstream R2 CDN) and refreshes npmDepsHash."
+}
