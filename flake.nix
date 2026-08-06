@@ -48,6 +48,8 @@
           eyg = pkgs.callPackage ./packages/eyg { };
           # Prebuilt rsvelte CLIs (fmt/lint/check) from npm platform packages.
           rsvelte = pkgs.callPackage ./packages/rsvelte { };
+          # Prebuilt prime-agent npm pack from GitHub Releases (Node >= 22.8).
+          prime-agent = pkgs.callPackage ./packages/prime-agent { };
           # Wrapper around scripts/update-packages.sh (needs a writable checkout).
           update = pkgs.callPackage ./packages/update { };
           default = self.packages.${system}.vit;
@@ -128,6 +130,10 @@
           rsvelte-check = {
             type = "app";
             program = "${self.packages.${system}.rsvelte}/bin/rsvelte-check";
+          };
+          prime-agent = {
+            type = "app";
+            program = "${self.packages.${system}.prime-agent}/bin/prime-agent";
           };
           update = {
             type = "app";
