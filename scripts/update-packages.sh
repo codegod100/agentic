@@ -1016,6 +1016,87 @@ update_gitlab_tag() {
   log "${name}: updated successfully to ${latest}"
 }
 
+update_github_release_npm() {
+  # Prebuilt npm pack published as a GitHub Release asset (buildNpmPackage +
+  # fetchurl, sourceRoot = "package", vendored package-lock.json).
+  # upstream.json:
+  #   type: github-release-npm
+  #   github: "owner/repo"
+  #   tag_prefix: "v"
+  #   asset: "prime-agent-{version}.tgz"   # {version} = bare version
+  local name="$1"
+  local pkg_dir="$ROOT/packages/${name}"
+  local default_nix="$pkg_dir/default.nix"
+  local upstream="$pkg_dir/upstream.json"
+  local repo tag_prefix asset_tmpl
+  repo="$(read_field "$upstream" github)"
+  tag_prefix="$(read_field "$upstream" tag_prefix)"
+  asset_tmpl="$(read_field "$upstream" asset)"
+  [[ -n "$repo" ]] || die "${name}: upstream.json missing github"
+  [[ -n "$asset_tmpl" ]] || die "${name}: upstream.json missing asset"
+  tag_prefix="${tag_prefix:-v}"
+
+  local cur latest
+  cur="$(current_version "$default_nix")"
+  log "${name}: current=${cur}"
+  latest="$(latest_github_tag "$repo" "$tag_prefix")"
+  log "${name}: latest upstream=${latest}"
+
+  if ! version_gt "$latest" "$cur"; then
+    log "${name}: already up to date"
+    return 0
+  fi
+
+  if [[ "$CHECK_ONLY" -eq 1 ]]; then
+    log "${name}: OUTDATED (${cur} -> ${latest})"
+    return 10
+  fi
+
+  log "${name}: updating ${cur} -> ${latest}"
+  set_field_string "$default_nix" version "$latest"
+
+  local asset src_url src_hash
+  asset="${asset_tmpl//\{version\}/$latest}"
+  src_url="https://github.com/${repo}/releases/download/${tag_prefix}${latest}/${asset}"
+  log "${name}: prefetching ${src_url}"
+  src_hash="$(sri_from_url_file "$src_url")"
+  set_fetchurl_hash "$default_nix" "$src_hash"
+  log "${name}: src hash ${src_hash}"
+
+  if [[ -f "$pkg_dir/package-lock.json" ]]; then
+    log "${name}: regenerating package-lock.json from release tarball"
+    need npm
+    local tmp archive dir
+    tmp="$(mktemp -d)"
+    archive="${tmp}/src.tgz"
+    dir="${tmp}/src"
+    curl -fsSL "$src_url" -o "$archive"
+    mkdir -p "$dir"
+    tar -xzf "$archive" -C "$dir"
+    # npm pack layout: package/
+    if [[ -d "$dir/package" ]]; then
+      dir="$dir/package"
+    fi
+    (
+      cd "$dir"
+      rm -f package-lock.json
+      npm install --package-lock-only --ignore-scripts
+    )
+    cp "$dir/package-lock.json" "$pkg_dir/package-lock.json"
+    rm -rf "$tmp"
+  fi
+
+  log "${name}: computing npmDepsHash"
+  set_npm_deps_hash "$default_nix" "$FAKE_HASH"
+  local npm_hash
+  npm_hash="$(capture_npm_deps_hash "$name")"
+  set_npm_deps_hash "$default_nix" "$npm_hash"
+  log "${name}: npmDepsHash ${npm_hash}"
+
+  verify_build "$name"
+  log "${name}: updated successfully to ${latest}"
+}
+
 update_github_tag() {
   # Source package from a GitHub release tag (fetchFromGitHub).
   # upstream.json:
@@ -1146,6 +1227,9 @@ for name in "${PACKAGES[@]}"; do
       ;;
     github-tag)
       ( set -euo pipefail; update_github_tag "$name" )
+      ;;
+    github-release-npm)
+      ( set -euo pipefail; update_github_release_npm "$name" )
       ;;
     *)
       set -e

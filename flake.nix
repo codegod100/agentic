@@ -50,6 +50,8 @@
           rsvelte-fmt = pkgs.callPackage ./packages/rsvelte-fmt { };
           rsvelte-lint = pkgs.callPackage ./packages/rsvelte-lint { };
           rsvelte-check = pkgs.callPackage ./packages/rsvelte-check { };
+          # Prebuilt prime-agent npm pack from GitHub Releases (Node >= 22.8).
+          prime-agent = pkgs.callPackage ./packages/prime-agent { };
           # Wrapper around scripts/update-packages.sh (needs a writable checkout).
           update = pkgs.callPackage ./packages/update { };
           default = self.packages.${system}.vit;
@@ -140,6 +142,10 @@
           rsvelte-check = {
             type = "app";
             program = "${self.packages.${system}.rsvelte-check}/bin/rsvelte-check";
+          };
+          prime-agent = {
+            type = "app";
+            program = "${self.packages.${system}.prime-agent}/bin/prime-agent";
           };
           update = {
             type = "app";

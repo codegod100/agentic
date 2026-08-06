@@ -43,6 +43,7 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `rsvelte-fmt` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/fmt`) | `npm install -g @rsvelte/fmt` |
 | `rsvelte-lint` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/lint`) | `npm install -g @rsvelte/lint` |
 | `rsvelte-check` | [baseballyama/rsvelte](https://github.com/baseballyama/rsvelte) (`@rsvelte/svelte-check`) | `npm install -g @rsvelte/svelte-check` |
+| `prime-agent` | [PrimeIntellect-ai/prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) | `curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh \| sh` |
 | `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
 | `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
 
@@ -82,6 +83,7 @@ nix build .#eyg           # linux + darwin (all four systems)
 nix build .#rsvelte-fmt   # linux + darwin (all four systems; npm prebuilt)
 nix build .#rsvelte-lint  # linux + darwin (all four systems; npm prebuilt)
 nix build .#rsvelte-check # linux + darwin (all four systems; npm prebuilt)
+nix build .#prime-agent   # linux + darwin (Node >= 22.8; release npm pack)
 nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#loreserver    # same platforms as lore
 
@@ -104,6 +106,7 @@ nix run .#eyg -- eval -c '!int_add(1, 1)'
 nix run .#rsvelte-fmt -- --version
 nix run .#rsvelte-lint -- --version
 nix run .#rsvelte-check -- --help
+nix run .#prime-agent -- --version
 nix run .#lore -- --version
 nix run .#loreserver -- --version
 
@@ -124,6 +127,7 @@ nix profile install .#eyg
 nix profile install .#rsvelte-fmt
 nix profile install .#rsvelte-lint
 nix profile install .#rsvelte-check
+nix profile install .#prime-agent
 nix profile install .#lore
 nix profile install .#loreserver
 ```
@@ -289,6 +293,21 @@ Tracks `dist-tags.latest` for the `npm` package, then rewrites every
 `sources.<system>.{url,hash}` from the matching platform package tarball
 (`https://registry.npmjs.org/@scope/pkg/-/pkg-<version>.tgz`). Used by
 `rsvelte-fmt` / `rsvelte-lint` / `rsvelte-check`.
+
+**github-release-npm** — prebuilt npm pack published as a GitHub Release asset:
+
+```json
+{
+  "type": "github-release-npm",
+  "github": "PrimeIntellect-ai/prime-agent",
+  "tag_prefix": "v",
+  "asset": "prime-agent-{version}.tgz"
+}
+```
+
+Tracks the newest semver tag, refreshes the `fetchurl` hash for the release
+tarball, regenerates `package-lock.json` from that pack (URL deps kept as
+upstream publishes them), and recomputes `npmDepsHash`. Used by `prime-agent`.
 
 ### Manual steps (vit / rook)
 
@@ -507,6 +526,35 @@ By hand:
    nix hash convert --hash-algo sha256 --to sri <base32>
    ```
 3. Paste the SRI hash into `fetchFromGitHub.hash`, then `nix build .#portfolio`.
+
+### Manual steps (prime-agent)
+
+`prime-agent` ships a prebuilt npm pack on GitHub Releases (`prime-agent-X.Y.Z.tgz`).
+Prefer the updater:
+
+```bash
+./scripts/update-packages.sh prime-agent
+```
+
+By hand:
+
+1. Bump `version` in `packages/prime-agent/default.nix`.
+2. Prefetch the release tarball hash:
+   ```bash
+   nix-prefetch-url "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/vX.Y.Z/prime-agent-X.Y.Z.tgz"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. Regenerate `packages/prime-agent/package-lock.json` from that pack:
+   ```bash
+   tmp=$(mktemp -d) && cd "$tmp"
+   curl -fsSL "https://github.com/PrimeIntellect-ai/prime-agent/releases/download/vX.Y.Z/prime-agent-X.Y.Z.tgz" | tar -xz
+   cd package
+   npm install --package-lock-only --ignore-scripts
+   cp package-lock.json /path/to/this/repo/packages/prime-agent/package-lock.json
+   ```
+4. Set `npmDepsHash` to the all-zero fake hash, run `nix build .#prime-agent`,
+   paste the hash nix prints as `got:`, rebuild, then smoke-test
+   `./result/bin/prime-agent --version`.
 
 ### Manual steps (rsvelte-fmt / rsvelte-lint / rsvelte-check)
 
