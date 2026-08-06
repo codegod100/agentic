@@ -83,7 +83,7 @@ nix build .#mimic         # linux only (GTK4/libadwaita)
 nix build .#portfolio     # linux only (GTK4/libadwaita file manager)
 nix build .#eyg           # linux + darwin (all four systems)
 nix build .#rsvelte       # linux + darwin; bins: rsvelte-fmt, rsvelte-lint, rsvelte-check
-nix build .#prime-agent   # linux + darwin (Node >= 22.8; release npm pack)
+nix build .#prime-agent   # linux + darwin (Node >= 22.8; release npm pack + Nix kernel Python)
 nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#loreserver    # same platforms as lore
 # run without installing
@@ -557,7 +557,10 @@ By hand:
 ### Manual steps (prime-agent)
 
 `prime-agent` ships a prebuilt npm pack on GitHub Releases (`prime-agent-X.Y.Z.tgz`).
-Prefer the updater:
+The flake wraps the CLI with `PRIME_AGENT_KERNEL_PYTHON` pointing at a Nix-built
+Python 3.12 env (ipykernel, `dist/prime-agent-runtime` from the same pack, dill,
+and upstream's default RLM packages) so the IPython kernel does not need `uv` or
+network on first use. Prefer the updater:
 
 ```bash
 ./scripts/update-packages.sh prime-agent
@@ -581,7 +584,8 @@ By hand:
    ```
 4. Set `npmDepsHash` to the all-zero fake hash, run `nix build .#prime-agent`,
    paste the hash nix prints as `got:`, rebuild, then smoke-test
-   `./result/bin/prime-agent --version`.
+   `./result/bin/prime-agent --version` and
+   `$(nix build .#prime-agent.kernelPython --print-out-paths)/bin/python -c 'import ipykernel, rlm'`.
 
 ### Manual steps (rsvelte)
 
