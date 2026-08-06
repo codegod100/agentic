@@ -125,10 +125,13 @@ buildNpmPackage.override { nodejs = nodejs_22; } (finalAttrs: {
     NODE_OPTIONS = "--use-openssl-ca";
   };
 
-  # Skip uv bootstrap; users can still override PRIME_AGENT_KERNEL_PYTHON.
+  # Force the Nix kernel Python. --set-default is not enough: an empty
+  # PRIME_AGENT_KERNEL_PYTHON in the parent env (or a stale daemon started
+  # without the wrapper) falls through to uv bootstrap. Override by wrapping
+  # again or replacing this binary.
   postFixup = ''
     wrapProgram $out/bin/prime-agent \
-      --set-default PRIME_AGENT_KERNEL_PYTHON "${
+      --set PRIME_AGENT_KERNEL_PYTHON "${
         kernelPythonFor finalAttrs.version finalAttrs.src
       }/bin/python"
   '';
