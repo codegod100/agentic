@@ -3,5 +3,5 @@
   "github": "PrimeIntellect-ai/prime-agent",
   "tag_prefix": "v",
   "asset": "prime-agent-{version}.tgz",
-  "description": "Prebuilt prime-agent npm pack from GitHub Releases. Regenerates package-lock.json (sibling @earendil-works/* URL deps stay on upstream R2 CDN) and refreshes npmDepsHash."
+  "description": "Prebuilt prime-agent npm pack from GitHub Releases. Regenerates package-lock.json (sibling @earendil-works/* URL deps stay on upstream R2 CDN) and refreshes npmDepsHash. The Nix package also builds dist/prime-agent-runtime into a Python 3.11 kernel env and wraps the CLI with PRIME_AGENT_KERNEL_PYTHON."
 }
