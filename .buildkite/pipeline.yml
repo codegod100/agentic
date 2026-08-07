@@ -9,7 +9,7 @@ steps:
     key: update
     if: build.source == "schedule" || build.env("FORCE_UPDATE") == "true"
     agents:
-      queue: "default"
+      queue: "auto"
     timeout_in_minutes: 90
     commands:
       - chmod +x scripts/buildkite-run-update.sh scripts/update-packages.sh
