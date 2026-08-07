@@ -31,7 +31,7 @@ PATCH_TITLE="${RADICLE_PATCH_TITLE:-chore(packages): weekly upstream version bum
 export PATH="${HOME}/.radicle/bin:${PATH}"
 export RAD_HOME="${RAD_HOME:-${HOME}/.radicle}"
 
-log()  { printf '==> %s\n' "$*"; }
+log()  { printf '==> %s\n' "$*" >&2; }
 die()  { printf 'error: %s\n' "$*" >&2; exit 1; }
 
 source_nix() {
