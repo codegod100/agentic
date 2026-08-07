@@ -1,16 +1,44 @@
-# Buildkite-only pipeline for agentic weekly upstream checks.
-# Trigger via Buildkite schedule or API (FORCE_UPDATE=true) — not GitHub Actions.
+# Buildkite pipeline for agentic.
+#
+# The Buildkite pipeline also stores this YAML as its configuration (so Radicle
+# patch tips that predate .buildkite/ still get a smoke step). Keep both in sync.
+#
+# Triggers:
+#   - schedule / FORCE_UPDATE=true → bump outdated packages + open Radicle patch
+#   - other builds (e.g. Radicle Garden patch CI) → smoke check only
+#
+# Required for patch publishing: RAD_PASSPHRASE
+# Optional: RADICLE_SECRET_KEY + RADICLE_PUBLIC_KEY, GITHUB_TOKEN
 #
 # Register schedule: BUILDKITE_API_TOKEN=… ./scripts/setup-buildkite-schedule.sh
-# Manual: curl Buildkite builds API with env FORCE_UPDATE=true
 
 steps:
-  - label: ":nix: Check packages against upstream"
+  - label: ":nix: Check packages → Radicle patch if outdated"
     key: update
     if: build.source == "schedule" || build.env("FORCE_UPDATE") == "true"
     agents:
       queue: "auto"
-    timeout_in_minutes: 90
+    timeout_in_minutes: 120
     commands:
+      - |
+        if [ ! -f scripts/buildkite-run-update.sh ]; then
+          echo "This tip has no Buildkite update scripts; skipping weekly updater."
+          exit 0
+        fi
       - chmod +x scripts/buildkite-run-update.sh scripts/update-packages.sh
       - ./scripts/buildkite-run-update.sh
+
+  - label: ":radicle: Patch smoke"
+    key: patch-smoke
+    if: build.source != "schedule" && build.env("FORCE_UPDATE") != "true"
+    agents:
+      queue: "auto"
+    timeout_in_minutes: 10
+    commands:
+      - |
+        set -euo pipefail
+        echo "Commit: ${BUILDKITE_COMMIT}"
+        echo "Branch: ${BUILDKITE_BRANCH}"
+        echo "Message: ${BUILDKITE_MESSAGE}"
+        test -f flake.nix
+        ls packages | head
