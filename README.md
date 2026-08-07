@@ -14,6 +14,9 @@ packages/
     upstream.json      # how CI discovers and bumps this package
 scripts/
   update-packages.sh   # version bump + hash/lock refresh
+  mirror-from-github.sh # Radicle mirror: fast-forward from GitHub upstream
+.buildkite/
+  pipeline.yml         # Buildkite: weekly GitHub → Radicle sync
 .github/workflows/
   ci.yml               # build on nixbuild.net; push to Cachix on merge
   update-packages.yml  # weekly cron + manual dispatch
@@ -136,6 +139,38 @@ nix profile install .#celld
 Ladybird lives in the [`codegod100/ladybird`](https://github.com/codegod100/ladybird)
 fork (Nix flake + in-tree OpenBao passkeys/passwords):
 `nix run github:codegod100/ladybird`.
+
+## Radicle Garden mirror
+
+GitHub (`codegod100/agentic`) is the source of truth. The Radicle Garden repo
+([`rad:z6BdNEojb6XZcor7SMkYpXn45Zp8`](https://radicle.garden/repos/rad:z6BdNEojb6XZcor7SMkYpXn45Zp8))
+is a read-mostly mirror kept in sync by Buildkite.
+
+| What | Where |
+|------|-------|
+| Development + CI | GitHub Actions (`.github/workflows/`) |
+| Mirror | Buildkite (`.buildkite/pipeline.yml`) on Radicle push/schedule |
+| Schedule | Mondays 06:17 UTC — same cadence as `update-packages.yml` |
+
+```bash
+# Local dry-run (fetch + compare only)
+DRY_RUN=1 ./scripts/mirror-from-github.sh
+
+# One-off mirror (needs Radicle credentials)
+RADICLE_GARDEN_EMAIL=… RADICLE_GARDEN_PASSWORD=… ./scripts/mirror-from-github.sh
+```
+
+**Buildkite setup** (once, after the pipeline exists):
+
+1. Add `RADICLE_GARDEN_EMAIL` and `RADICLE_GARDEN_PASSWORD` to the pipeline env
+   (or cluster secrets) in the Buildkite dashboard.
+2. Register the weekly schedule:
+
+```bash
+BUILDKITE_API_TOKEN=bkua_… ./scripts/setup-buildkite-schedule.sh
+```
+
+Manual dispatch: trigger a build with `FORCE_MIRROR=true`.
 
 ## Updating packages
 
