@@ -183,8 +183,11 @@ clone_rad_workdir() {
   local dir
   dir="$(rad_workdir)"
   rm -rf "$dir"
+  mkdir -p "$(dirname "$dir")"
   log "cloning ${RADICLE_RID} from seed ${RADICLE_SEED_NID} → ${dir}"
-  rad clone "${RADICLE_RID}" --seed "${RADICLE_SEED_NID}" --timeout 60s "$dir"
+  # rad clone prints progress on stdout; keep only our path on stdout.
+  rad clone "${RADICLE_RID}" --seed "${RADICLE_SEED_NID}" --timeout 60s "$dir" >&2
+  [[ -d "$dir/.git" ]] || die "rad clone did not create ${dir}"
   git -C "$dir" config user.email "${GIT_AUTHOR_EMAIL:-buildkite@agentic.local}"
   git -C "$dir" config user.name "${GIT_AUTHOR_NAME:-Buildkite}"
   git -C "$dir" config commit.gpgsign false
