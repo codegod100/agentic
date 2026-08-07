@@ -234,17 +234,19 @@ open_or_update_patch() {
   cd "$dir"
   git checkout -B chore/update-packages >/dev/null 2>&1 || git checkout -B chore/update-packages
 
+  # Title comes from the commit subject; avoid editor prompts with GIT_EDITOR.
+  export GIT_EDITOR=true
+  export VISUAL=true
+  export EDITOR=true
+
   if [[ -n "$existing" ]]; then
     log "updating existing Radicle patch ${existing}"
-    git push --force-with-lease \
-      -c "push.pushOption=patch.message=${PATCH_TITLE}" \
-      rad "HEAD:patches/${existing}"
+    git -c "push.pushOption=patch.message=${PATCH_TITLE}" \
+      push --force-with-lease rad "HEAD:patches/${existing}"
   else
     log "opening new Radicle patch"
-    # Title falls back to the commit subject if the push option is ignored.
-    git push \
-      -c "push.pushOption=patch.message=${PATCH_TITLE}" \
-      rad HEAD:refs/patches
+    git -c "push.pushOption=patch.message=${PATCH_TITLE}" \
+      push rad HEAD:refs/patches
   fi
 }
 
