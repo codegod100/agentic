@@ -140,22 +140,30 @@ Ladybird lives in the [`codegod100/ladybird`](https://github.com/codegod100/lady
 fork (Nix flake + in-tree OpenBao passkeys/passwords):
 `nix run github:codegod100/ladybird`.
 
-## Buildkite (weekly package updates)
+## Buildkite (weekly package updates → Radicle patch)
 
 [Buildkite](https://buildkite.com/nandi/agentic-n45zp8) clones from GitHub but
 is **triggered only on Buildkite** (schedule or API). Every Monday at 06:17 UTC
-it runs `scripts/update-packages.sh --check` and fails if any package is behind
-upstream (use GitHub Actions to open bump PRs).
+it runs `scripts/update-packages.sh --check`. If any package is behind upstream,
+it bumps packages on the Radicle copy and opens (or updates) a **Radicle patch**
+on [`rad:z6BdNEojb6XZcor7SMkYpXn45Zp8`](https://nandi.radicle.garden/rad:z6BdNEojb6XZcor7SMkYpXn45Zp8)
+— it does **not** push to GitHub (GitHub Actions still opens bump PRs there).
 
 ```bash
 # Register the weekly schedule (once)
 BUILDKITE_API_TOKEN=bkua_… ./scripts/setup-buildkite-schedule.sh
 
 # Manual trigger via Buildkite API (set FORCE_UPDATE=true in build env)
-# Full bump + nix build on agent: also set BUILDKITE_FULL_UPDATE=1
+# Skip --check and always bump + patch: also set BUILDKITE_FULL_UPDATE=1
 ```
 
-Optional pipeline env: `GITHUB_TOKEN` for higher GitHub API rate limits.
+Pipeline secrets / env:
+
+| Variable | Purpose |
+|---|---|
+| `RAD_PASSPHRASE` | Unlock / create the Radicle signing key (required to publish patches) |
+| `RADICLE_SECRET_KEY` + `RADICLE_PUBLIC_KEY` | Optional persistent identity (otherwise a fresh `rad auth` each run) |
+| `GITHUB_TOKEN` | Optional; higher GitHub API rate limits when querying upstream |
 
 ## Updating packages
 
