@@ -66,6 +66,8 @@
           # Official prebuilt CLI/server; no darwin-x86_64; aarch64-linux is Neoverse/Graviton.
           lore = pkgs.callPackage ./packages/lore { };
           loreserver = pkgs.callPackage ./packages/loreserver { };
+          # Official prebuilt celld daemon; gzip-compressed binaries; no darwin-x86_64.
+          celld = pkgs.callPackage ./packages/celld { };
         }
         // pkgs.lib.optionalAttrs (system == "x86_64-linux") {
           # Official preview tarball is only fetched for x86_64-linux.
@@ -159,6 +161,10 @@
           loreserver = {
             type = "app";
             program = "${self.packages.${system}.loreserver}/bin/loreserver";
+          };
+          celld = {
+            type = "app";
+            program = "${self.packages.${system}.celld}/bin/celld";
           };
         }
         // nixpkgs.lib.optionalAttrs (system == "x86_64-linux") {
