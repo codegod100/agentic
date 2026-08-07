@@ -242,11 +242,35 @@ open_or_update_patch() {
   if [[ -n "$existing" ]]; then
     log "updating existing Radicle patch ${existing}"
     git -c "push.pushOption=patch.message=${PATCH_TITLE}" \
-      push --force-with-lease rad "HEAD:patches/${existing}"
+      push --force-with-lease rad "HEAD:patches/${existing}" \
+      || git -c "push.pushOption=patch.message=${PATCH_TITLE}" \
+           push --force rad "HEAD:patches/${existing}"
   else
     log "opening new Radicle patch"
     git -c "push.pushOption=patch.message=${PATCH_TITLE}" \
       push rad HEAD:refs/patches
+  fi
+}
+
+ensure_pipeline_yml_in_workdir() {
+  local dir="$1"
+  mkdir -p "${dir}/.buildkite"
+  if [[ -f "${ROOT}/.buildkite/pipeline.yml" ]]; then
+    cp "${ROOT}/.buildkite/pipeline.yml" "${dir}/.buildkite/pipeline.yml"
+  elif [[ ! -f "${dir}/.buildkite/pipeline.yml" ]]; then
+    cat >"${dir}/.buildkite/pipeline.yml" <<'YAML'
+steps:
+  - label: ":radicle: Patch smoke"
+    key: patch-smoke
+    agents:
+      queue: "auto"
+    timeout_in_minutes: 10
+    commands:
+      - |
+        set -euo pipefail
+        test -f flake.nix
+        ls packages | head
+YAML
   fi
 }
 
@@ -273,7 +297,11 @@ run_full_update_and_patch() {
     return 0
   fi
 
-  git -C "$dir" add packages
+  # Garden's Buildkite adapter runs `pipeline upload` from the tip; without
+  # .buildkite/pipeline.yml the Job COB is recorded as failed.
+  ensure_pipeline_yml_in_workdir "$dir"
+
+  git -C "$dir" add packages .buildkite
   git -C "$dir" commit -m "${PATCH_TITLE}"
   open_or_update_patch "$dir"
   log "Radicle patch published for ${RADICLE_RID}"
