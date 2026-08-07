@@ -140,15 +140,13 @@ path = os.path.join(os.environ["RAD_HOME"], "config.json")
 seed = sys.argv[1]
 with open(path) as f:
     cfg = json.load(f)
-prefs = cfg.get("preferredSeeds") or []
-connect = (cfg.get("node") or {}).get("connect") or []
-if seed not in prefs:
-    prefs = [seed] + [s for s in prefs if s != seed]
-    cfg["preferredSeeds"] = prefs
-cfg.setdefault("node", {})
-if seed not in connect:
-    connect = [seed] + [s for s in connect if s != seed]
-    cfg["node"]["connect"] = connect
+prefs = list(cfg.get("preferredSeeds") or [])
+connect = list((cfg.get("node") or {}).get("connect") or [])
+# Prefer Garden first, keep any existing public seeds.
+prefs = [seed] + [s for s in prefs if s != seed]
+connect = [seed] + [s for s in connect if s != seed]
+cfg["preferredSeeds"] = prefs
+cfg.setdefault("node", {})["connect"] = connect
 with open(path, "w") as f:
     json.dump(cfg, f, indent=2)
     f.write("\n")
@@ -166,27 +164,44 @@ ensure_rad_node() {
   # Reconnect after preferredSeeds / connect updates.
   rad node stop >/dev/null 2>&1 || true
   rad node start
+  log "connecting to Garden seed ${RADICLE_SEED}"
+  # Explicit dial; Buildkite agents need a real address, not gossip alone.
+  if ! rad node connect --timeout 45s "${RADICLE_SEED}"; then
+    log "warning: direct connect to Garden timed out; will try public seeds too"
+  fi
   for _ in $(seq 1 30); do
-    if rad node status 2>/dev/null | grep -q "${RADICLE_SEED_NID}"; then
+    if rad node status 2>/dev/null | grep -Eq "${RADICLE_SEED_NID}|iris\.radicle|rosa\.radicle"; then
       return 0
     fi
     sleep 1
   done
-  log "warning: garden seed ${RADICLE_SEED_NID} not yet listed in node status (continuing)"
+  log "warning: no preferred seed listed in node status yet (continuing)"
 }
 
 rad_workdir() {
   printf '%s' "${RADICLE_WORKDIR:-${TMPDIR:-/tmp}/agentic-radicle-patch}"
 }
 
+FALLBACK_SEED_NIDS=(
+  z6MkrLMMsiPWUcNPHcRajuMi9mDfYckSoJyPwwnknocNYPm7  # iris
+  z6Mkmqogy2qEM2ummccUthFEaaHvyYmYBYh3dbe9W4ebScxo  # rosa
+)
+
 clone_rad_workdir() {
-  local dir
+  local dir seed_args=()
   dir="$(rad_workdir)"
   rm -rf "$dir"
   mkdir -p "$(dirname "$dir")"
   log "cloning ${RADICLE_RID} from seed ${RADICLE_SEED_NID} → ${dir}"
+  seed_args=(--seed "${RADICLE_SEED_NID}")
+  local nid
+  for nid in "${FALLBACK_SEED_NIDS[@]}"; do
+    seed_args+=(--seed "$nid")
+  done
   # rad clone prints progress on stdout; keep only our path on stdout.
-  rad clone "${RADICLE_RID}" --seed "${RADICLE_SEED_NID}" --timeout 60s "$dir" >&2
+  if ! rad clone "${RADICLE_RID}" "${seed_args[@]}" --timeout 90s "$dir" >&2; then
+    die "rad clone failed for ${RADICLE_RID}"
+  fi
   [[ -d "$dir/.git" ]] || die "rad clone did not create ${dir}"
   git -C "$dir" config user.email "${GIT_AUTHOR_EMAIL:-buildkite@agentic.local}"
   git -C "$dir" config user.name "${GIT_AUTHOR_NAME:-Buildkite}"
