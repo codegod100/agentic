@@ -1,0 +1,11 @@
+{
+  "type": "github-release-binary",
+  "github": "denoland/celld",
+  "tag_prefix": "v",
+  "platforms": {
+    "x86_64-linux": "celld-x86_64-unknown-linux-gnu.gz",
+    "aarch64-linux": "celld-aarch64-unknown-linux-gnu.gz",
+    "aarch64-darwin": "celld-aarch64-apple-darwin.gz"
+  },
+  "description": "Official multi-platform release binaries (gzip-compressed celld executable). Tracks latest vX.Y.Z GitHub release and refreshes per-platform fetchurl hashes."
+}

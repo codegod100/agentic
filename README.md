@@ -44,6 +44,7 @@ updates, also add `packages/<name>/upstream.json` (see below).
 | `prime-agent` | [PrimeIntellect-ai/prime-agent](https://github.com/PrimeIntellect-ai/prime-agent) | `curl -fsSL https://app.primeintellect.ai/prime-agent/install.sh \| sh` |
 | `lore` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) / release tarballs |
 | `loreserver` | [EpicGames/lore](https://github.com/EpicGames/lore) | [install script](https://raw.githubusercontent.com/EpicGames/lore/main/scripts/install.sh) (`--server` / `--demo`) / release tarballs |
+| `celld` | [denoland/celld](https://github.com/denoland/celld) | `curl -fsSL https://celld.dev/install.sh \| sh` |
 ## Binary cache (Cachix)
 
 CI compiles every package on [nixbuild.net](https://nixbuild.net) (GHA only
@@ -86,6 +87,7 @@ nix build .#rsvelte       # linux + darwin; bins: rsvelte-fmt, rsvelte-lint, rsv
 nix build .#prime-agent   # linux + darwin (Node >= 22.8; release npm pack + Nix kernel Python)
 nix build .#lore          # x86_64-linux / aarch64-linux / aarch64-darwin
 nix build .#loreserver    # same platforms as lore
+nix build .#celld         # x86_64-linux / aarch64-linux / aarch64-darwin
 # run without installing
 nix run .#vit -- --help
 nix run .#rook -- --help
@@ -108,6 +110,7 @@ nix run .#rsvelte-check -- --help   # apps from the rsvelte package
 nix run .#prime-agent -- --version
 nix run .#lore -- --version
 nix run .#loreserver -- --version
+nix run .#celld -- --version
 
 # install into your profile
 nix profile install .#vit
@@ -127,6 +130,7 @@ nix profile install .#rsvelte       # installs fmt + lint + check
 nix profile install .#prime-agent
 nix profile install .#lore
 nix profile install .#loreserver
+nix profile install .#celld
 ```
 
 Ladybird lives in the [`codegod100/ladybird`](https://github.com/codegod100/ladybird)
@@ -254,7 +258,8 @@ Set `"tag_prerelease": true` to match any prerelease tag (`vX.Y.Z-rc1`,
 `fetchurl` hash; multi-platform mode rewrites every `sources.<system>.{url,hash}`.
 `{version}` in asset names is the bare version (no tag prefix). Used by
 `zed-preview` (single), `whetuu` / `gleam-preview` / `pullrun` / `halloy`
-(multi; halloy is x86_64-linux only).
+(multi; halloy is x86_64-linux only), `lore` / `loreserver` / `celld` (multi;
+no darwin-x86_64).
 
 **url-manifest-binary** — prebuilt multi-platform binaries via a version
 manifest URL (not GitHub releases):
@@ -642,3 +647,24 @@ By hand:
    ```
 3. `nix build .#lore` / `nix build .#loreserver` and smoke-test
    `./result/bin/lore --version` / `./result/bin/loreserver --version`.
+
+### Manual steps (celld)
+
+`celld` ships official multi-platform release binaries as gzip-compressed
+executables (dynamic glibc on Linux; no darwin-x86_64). Prefer the updater:
+
+```bash
+./scripts/update-packages.sh celld
+```
+
+By hand:
+
+1. Bump `version` in `packages/celld/default.nix` (e.g. `0.1.0`).
+2. Update each `sources.<system>.url` to the matching release asset and prefetch:
+   ```bash
+   nix-prefetch-url "https://github.com/denoland/celld/releases/download/vX.Y.Z/celld-x86_64-unknown-linux-gnu.gz"
+   nix-prefetch-url "https://github.com/denoland/celld/releases/download/vX.Y.Z/celld-aarch64-unknown-linux-gnu.gz"
+   nix-prefetch-url "https://github.com/denoland/celld/releases/download/vX.Y.Z/celld-aarch64-apple-darwin.gz"
+   nix hash convert --hash-algo sha256 --to sri <base32>
+   ```
+3. `nix build .#celld` and smoke-test `./result/bin/celld --version`.
