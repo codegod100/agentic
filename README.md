@@ -143,19 +143,19 @@ fork (Nix flake + in-tree OpenBao passkeys/passwords):
 ## Buildkite (weekly package updates)
 
 [Buildkite](https://buildkite.com/nandi/agentic-n45zp8) clones from GitHub but
-is **triggered only on Buildkite** (schedule or API) — it does not push changes
-back to GitHub. Every Monday at 06:17 UTC it runs `scripts/update-packages.sh`.
+is **triggered only on Buildkite** (schedule or API). Every Monday at 06:17 UTC
+it runs `scripts/update-packages.sh --check` and fails if any package is behind
+upstream (use GitHub Actions to open bump PRs).
 
 ```bash
 # Register the weekly schedule (once)
 BUILDKITE_API_TOKEN=bkua_… ./scripts/setup-buildkite-schedule.sh
 
 # Manual trigger via Buildkite API (set FORCE_UPDATE=true in build env)
+# Full bump + nix build on agent: also set BUILDKITE_FULL_UPDATE=1
 ```
 
-Optional pipeline env: `GITHUB_TOKEN` for higher GitHub API rate limits during
-upstream tag lookups. Package bumps that need landing in the repo still go through
-`.github/workflows/update-packages.yml` on GitHub.
+Optional pipeline env: `GITHUB_TOKEN` for higher GitHub API rate limits.
 
 ## Updating packages
 

@@ -5,7 +5,7 @@
 # Manual: curl Buildkite builds API with env FORCE_UPDATE=true
 
 steps:
-  - label: ":nix: Bump packages from upstream"
+  - label: ":nix: Check packages against upstream"
     key: update
     if: build.source == "schedule" || build.env("FORCE_UPDATE") == "true"
     agents:
