@@ -14,9 +14,9 @@ packages/
     upstream.json      # how CI discovers and bumps this package
 scripts/
   update-packages.sh          # version bump + hash/lock refresh
-  buildkite-update-packages.sh # Buildkite weekly update + GitHub PR
+  buildkite-run-update.sh       # Buildkite agent wrapper for update-packages.sh
 .buildkite/
-  pipeline.yml                # Buildkite: weekly upstream package bumps (GitHub)
+  pipeline.yml                # Buildkite-only weekly upstream checks
 .github/workflows/
   ci.yml               # build on nixbuild.net; push to Cachix on merge
   update-packages.yml  # weekly cron + manual dispatch
@@ -142,26 +142,20 @@ fork (Nix flake + in-tree OpenBao passkeys/passwords):
 
 ## Buildkite (weekly package updates)
 
-[Buildkite](https://buildkite.com/nandi/agentic-n45zp8) runs on **GitHub**
-(`codegod100/agentic`), not Radicle. Every Monday at 06:17 UTC (same cadence as
-`.github/workflows/update-packages.yml`) it:
-
-1. Runs `scripts/update-packages.sh` against each `packages/*/upstream.json`
-2. Opens (or updates) PR `chore/update-packages` on GitHub
+[Buildkite](https://buildkite.com/nandi/agentic-n45zp8) clones from GitHub but
+is **triggered only on Buildkite** (schedule or API) — it does not push changes
+back to GitHub. Every Monday at 06:17 UTC it runs `scripts/update-packages.sh`.
 
 ```bash
-# Local dry-run of the Buildkite update path
-DRY_RUN=1 GITHUB_TOKEN=… ./scripts/buildkite-update-packages.sh
-
 # Register the weekly schedule (once)
 BUILDKITE_API_TOKEN=bkua_… ./scripts/setup-buildkite-schedule.sh
+
+# Manual trigger via Buildkite API (set FORCE_UPDATE=true in build env)
 ```
 
-**Pipeline env:** set `GITHUB_TOKEN` (contents + pull-requests write) on the
-Buildkite pipeline. Manual dispatch: trigger with `FORCE_UPDATE=true`.
-
-Radicle Garden (`rad:z6BdNEojb6XZcor7SMkYpXn45Zp8`) is a separate mirror and is
-not wired to this Buildkite pipeline.
+Optional pipeline env: `GITHUB_TOKEN` for higher GitHub API rate limits during
+upstream tag lookups. Package bumps that need landing in the repo still go through
+`.github/workflows/update-packages.yml` on GitHub.
 
 ## Updating packages
 

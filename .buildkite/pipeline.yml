@@ -1,16 +1,8 @@
-# Buildkite pipeline for codegod100/agentic (GitHub).
-# Weekly scheduled run bumps packages/* from upstream.json and opens a PR on GitHub.
+# Buildkite-only pipeline for agentic weekly upstream checks.
+# Trigger via Buildkite schedule or API (FORCE_UPDATE=true) — not GitHub Actions.
 #
-# Setup:
-#   1. Pipeline repository must be https://github.com/codegod100/agentic.git
-#   2. Add GITHUB_TOKEN to pipeline env (contents + pull-requests write)
-#   3. BUILDKITE_API_TOKEN=… ./scripts/setup-buildkite-schedule.sh
-#
-# Manual: trigger a build with FORCE_UPDATE=true
-
-env:
-  GITHUB_REPOSITORY: "codegod100/agentic"
-  UPDATE_BRANCH: "chore/update-packages"
+# Register schedule: BUILDKITE_API_TOKEN=… ./scripts/setup-buildkite-schedule.sh
+# Manual: curl Buildkite builds API with env FORCE_UPDATE=true
 
 steps:
   - label: ":nix: Bump packages from upstream"
@@ -20,12 +12,5 @@ steps:
       queue: "default"
     timeout_in_minutes: 90
     commands:
-      - test -n "$GITHUB_TOKEN" || (echo "GITHUB_TOKEN must be set on the pipeline" && exit 1)
-      - chmod +x scripts/buildkite-update-packages.sh scripts/update-packages.sh
-      - ./scripts/buildkite-update-packages.sh
-
-  - label: ":pipeline: Pipeline loaded"
-    key: noop
-    if: build.source != "schedule" && build.env("FORCE_UPDATE") != "true"
-    commands:
-      - echo "Push/webhook build — weekly update runs on schedule (Mon 06:17 UTC) or FORCE_UPDATE=true"
+      - chmod +x scripts/buildkite-run-update.sh scripts/update-packages.sh
+      - ./scripts/buildkite-run-update.sh
