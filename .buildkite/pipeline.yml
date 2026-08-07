@@ -1,33 +1,31 @@
-# Radicle Garden → Buildkite pipeline for the agentic mirror.
-# GitHub (codegod100/agentic) is the source of truth; this job fast-forwards
-# the Radicle repo weekly so garden stays in sync.
+# Buildkite pipeline for codegod100/agentic (GitHub).
+# Weekly scheduled run bumps packages/* from upstream.json and opens a PR on GitHub.
 #
-# Schedule: run scripts/setup-buildkite-schedule.sh once after the pipeline
-# exists in Buildkite (created automatically on the first push with this file).
+# Setup:
+#   1. Pipeline repository must be https://github.com/codegod100/agentic.git
+#   2. Add GITHUB_TOKEN to pipeline env (contents + pull-requests write)
+#   3. BUILDKITE_API_TOKEN=… ./scripts/setup-buildkite-schedule.sh
 #
-# Required Buildkite secrets (pipeline or cluster env):
-#   RADICLE_GARDEN_EMAIL, RADICLE_GARDEN_PASSWORD
-# Optional:
-#   GITHUB_TOKEN — higher GitHub API rate limits during fetch
+# Manual: trigger a build with FORCE_UPDATE=true
 
 env:
-  GITHUB_UPSTREAM_URL: "https://github.com/codegod100/agentic.git"
-  UPSTREAM_BRANCH: "main"
-  RADICLE_BRANCH: "main"
+  GITHUB_REPOSITORY: "codegod100/agentic"
+  UPDATE_BRANCH: "chore/update-packages"
 
 steps:
-  - label: ":github: Mirror from GitHub upstream"
-    key: mirror
-    if: build.source == "schedule" || build.env("FORCE_MIRROR") == "true"
+  - label: ":nix: Bump packages from upstream"
+    key: update
+    if: build.source == "schedule" || build.env("FORCE_UPDATE") == "true"
     agents:
       queue: "default"
+    timeout_in_minutes: 90
     commands:
-      - test -n "$RADICLE_GARDEN_EMAIL" -a -n "$RADICLE_GARDEN_PASSWORD" || (echo "RADICLE_GARDEN_EMAIL and RADICLE_GARDEN_PASSWORD must be set in Buildkite" && exit 1)
-      - chmod +x scripts/mirror-from-github.sh
-      - ./scripts/mirror-from-github.sh
+      - test -n "$GITHUB_TOKEN" || (echo "GITHUB_TOKEN must be set on the pipeline" && exit 1)
+      - chmod +x scripts/buildkite-update-packages.sh scripts/update-packages.sh
+      - ./scripts/buildkite-update-packages.sh
 
   - label: ":pipeline: Pipeline loaded"
     key: noop
-    if: build.source != "schedule" && build.env("FORCE_MIRROR") != "true"
+    if: build.source != "schedule" && build.env("FORCE_UPDATE") != "true"
     commands:
-      - echo "Push build — mirror runs on schedule (Mondays 06:17 UTC) or with FORCE_MIRROR=true"
+      - echo "Push/webhook build — weekly update runs on schedule (Mon 06:17 UTC) or FORCE_UPDATE=true"
